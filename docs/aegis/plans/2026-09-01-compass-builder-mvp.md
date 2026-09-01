@@ -298,9 +298,9 @@ Steps:
    -C`, exact model selection, structured output, and a stable `multi_agent` feature that
    can be disabled. Do not infer `model_reasoning_effort` support from generic `-c` help.
    Require a current native-capability snapshot supplied by the invoking Codex control
-   plane that names the exact selected model and supported efforts with provenance and
-   version; fail closed when it is absent, stale, or inconsistent. Hash all raw evidence
-   in the plan.
+   plane that names the exact selected model, supported efforts, and exact reasoning
+   config key `model_reasoning_effort` with separate native evidence. Fail closed when
+   it is absent, stale, or inconsistent. Hash all raw evidence in the plan.
 2. Resolve the explicit base ref once to an immutable SHA. Do not require branch names
    `main` or `master`.
 3. Require repository-local `/.compass-builder/` to be ignored by a tracked `.gitignore`,
@@ -359,6 +359,8 @@ Steps:
 
    Send the bounded worker prompt on stdin. Never use bypass-sandbox, bypass-approval,
    hook-trust bypass, extra writable directories, or shell interpolation.
+   This task binds an existing canonical worktree path into launch material only;
+   controller registration, lifecycle verification, and process execution remain Task 5.
 4. Launch with a controller-owned sanitized Git environment: disable system configuration
    and system attributes, point global config and attributes to registered empty files,
    use an empty template/hooks directory, disable commit/tag signing, and preserve fixed

@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openai.local/compass-builder/launch-record.schema.json",
+  "title": "Compass Builder launch record v1",
+  "$comment": "Syntax, retry evidence, first-attempt effort equality, and strictly higher second-attempt effort ordering are enforced here. Python validation additionally enforces canonical absolute paths, the exact bundled schema path, native host reasoning-key/evidence binding, and exact argv reconstruction.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "runId", "storyId", "branch", "attempt", "worktree",
+    "exactModel", "effort", "initialRecommendedEffort", "reasoningConfigKey",
+    "reasoningConfigEvidenceDigest", "handoffDigest", "hostEvidenceDigest",
+    "workerOutputSchemaPath", "workerOutputSchemaDigest", "promptDigest",
+    "gitEnvironmentDigest", "argv", "previousLaunchDigest", "retryEvidenceDigest"
+  ],
+  "properties": {
+    "schemaVersion": {"const": "compass-builder.launch-record.v1"},
+    "runId": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,31}-[0-9a-f]{16,64}$", "maxLength": 97},
+    "storyId": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$", "maxLength": 64},
+    "branch": {"type": "string", "minLength": 1, "maxLength": 240, "pattern": "^(?!@$)(?![-/])(?!.*(?:^|/)\\.)(?!.*(?:^|/)[^/]*\\.[Ll][Oo][Cc][Kk](?:/|$))(?!.*(?:^|/)(?:[Cc][Oo][Nn]|[Pp][Rr][Nn]|[Aa][Uu][Xx]|[Nn][Uu][Ll]|[Cc][Oo][Mm][1-9]|[Ll][Pp][Tt][1-9])(?:\\.[^/]*)?(?:/|$))(?!.*(?:^|/)[^/]*[. ](?:/|$))(?!.*(?:\\.\\.|//|@\\{|\\\\|[\\u0000-\\u0020\\u007f~^:?*\\[\\]<>|]|\\s|\\x22))[^/]+(?:/[^/]+)*(?<![/. ])$"},
+    "attempt": {"type": "integer", "minimum": 1, "maximum": 2},
+    "worktree": {"$ref": "#/$defs/absolutePathSyntax"},
+    "exactModel": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,159}$", "maxLength": 160},
+    "effort": {"enum": ["low", "medium", "high", "xhigh", "max", "ultra"]},
+    "initialRecommendedEffort": {"enum": ["low", "medium", "high", "xhigh", "max", "ultra"]},
+    "reasoningConfigKey": {"const": "model_reasoning_effort"},
+    "reasoningConfigEvidenceDigest": {"$ref": "#/$defs/digest"},
+    "handoffDigest": {"$ref": "#/$defs/digest"},
+    "hostEvidenceDigest": {"$ref": "#/$defs/digest"},
+    "workerOutputSchemaPath": {"$ref": "#/$defs/absolutePathSyntax"},
+    "workerOutputSchemaDigest": {"const": "sha256:92e2f2e58ccd8790247722e889644ce02845ca410f01c7bc56cc41d4fe751080"},
+    "promptDigest": {"$ref": "#/$defs/digest"},
+    "gitEnvironmentDigest": {"$ref": "#/$defs/digest"},
+    "argv": {
+      "type": "array", "minItems": 18, "maxItems": 18,
+      "items": {"type": "string", "minLength": 1, "maxLength": 2048}
+    },
+    "previousLaunchDigest": {"oneOf": [{"$ref": "#/$defs/digest"}, {"type": "null"}]},
+    "retryEvidenceDigest": {"oneOf": [{"$ref": "#/$defs/digest"}, {"type": "null"}]}
+  },
+  "$defs": {
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "absolutePathSyntax": {
+      "type": "string", "minLength": 1, "maxLength": 1024,
+      "pattern": "^(?!\\s)(?![\\s\\S]*\\s$)(?![\\s\\S]*[\\u0000-\\u001f\\u007f])(?:(?:[A-Za-z]:[\\\\/])|(?:\\\\\\\\)|/)[\\s\\S]+$"
+    }
+  },
+  "oneOf": [
+    {
+      "properties": {
+        "attempt": {"const": 1},
+        "previousLaunchDigest": {"type": "null"},
+        "retryEvidenceDigest": {"type": "null"}
+      },
+      "allOf": [
+        {
+          "oneOf": [
+            {"properties": {"initialRecommendedEffort": {"const": "low"}, "effort": {"const": "low"}}},
+            {"properties": {"initialRecommendedEffort": {"const": "medium"}, "effort": {"const": "medium"}}},
+            {"properties": {"initialRecommendedEffort": {"const": "high"}, "effort": {"const": "high"}}},
+            {"properties": {"initialRecommendedEffort": {"const": "xhigh"}, "effort": {"const": "xhigh"}}},
+            {"properties": {"initialRecommendedEffort": {"const": "max"}, "effort": {"const": "max"}}},
+            {"properties": {"initialRecommendedEffort": {"const": "ultra"}, "effort": {"const": "ultra"}}}
+          ]
+        }
+      ]
+    },
+    {
+      "properties": {
+        "attempt": {"const": 2},
+        "previousLaunchDigest": {"$ref": "#/$defs/digest"},
+        "retryEvidenceDigest": {"$ref": "#/$defs/digest"}
+      },
+      "allOf": [
+        {
+          "oneOf": [
+            {"properties": {"initialRecommendedEffort": {"const": "low"}, "effort": {"enum": ["medium", "high", "xhigh", "max", "ultra"]}}},
+            {"properties": {"initialRecommendedEffort": {"const": "medium"}, "effort": {"enum": ["high", "xhigh", "max", "ultra"]}}},
+            {"properties": {"initialRecommendedEffort": {"const": "high"}, "effort": {"enum": ["xhigh", "max", "ultra"]}}},
+            {"properties": {"initialRecommendedEffort": {"const": "xhigh"}, "effort": {"enum": ["max", "ultra"]}}},
+            {"properties": {"initialRecommendedEffort": {"const": "max"}, "effort": {"const": "ultra"}}}
+          ]
+        }
+      ]
+    }
+  ]
+}

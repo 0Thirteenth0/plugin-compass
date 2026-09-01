@@ -121,6 +121,27 @@ class DoctorTests(unittest.TestCase):
         with self.assertRaisesRegex(DoctorError, "support claims"):
             self.doctor(captured=captured, host=host)
 
+    def test_reasoning_config_requires_separate_native_proof_not_generic_c_help(self):
+        captured = copy.deepcopy(self.captured)
+        item = captured["codexExecHelp"]
+        captured["codexExecHelp"] = CommandEvidence(
+            item.argv, 0, item.stdout + "  -c <key=value> generic config override\n"
+        )
+        host = host_for(captured)
+        report = self.doctor(captured=captured, host=host)
+        self.assertEqual(
+            "model_reasoning_effort",
+            report["hostCapabilities"]["reasoningConfig"]["key"],
+        )
+        missing = copy.deepcopy(host)
+        del missing["reasoningConfig"]
+        with self.assertRaisesRegex(DoctorError, "reasoningConfig"):
+            self.doctor(captured=captured, host=missing)
+        mismatched = copy.deepcopy(host)
+        mismatched["reasoningConfig"]["key"] = "generic.key"
+        with self.assertRaisesRegex(DoctorError, "reasoningConfig.key"):
+            self.doctor(captured=captured, host=mismatched)
+
     def test_option_and_feature_lookalikes_do_not_prove_capabilities(self):
         captured = copy.deepcopy(self.captured)
         help_item = captured["codexExecHelp"]

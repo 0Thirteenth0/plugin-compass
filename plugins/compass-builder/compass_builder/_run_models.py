@@ -205,6 +205,7 @@ def validate_plan_safety(spec: dict[str, Any], plan: dict[str, Any]) -> None:
 def validate_host_shape(data: dict[str, Any]) -> None:
     object_(data, "$", {
         "schemaVersion", "codexVersion", "selectedModel", "supportedEfforts", "captureSource",
+        "reasoningConfig",
         "capturedAt", "validUntil", "cliEvidenceDigest", "gitEvidenceDigest", "supports", "os",
         "pythonVersion", "gitVersion", "hostConcurrencyCeiling", "userConcurrencyCeiling",
     })
@@ -214,6 +215,16 @@ def validate_host_shape(data: dict[str, Any]) -> None:
         fail("$.selectedModel", "must name the exact selected model", "record the native model ID")
     for index, effort in enumerate(strings(data["supportedEfforts"], "$.supportedEfforts", minimum=1, maximum=128, items_maximum=MAX_SUPPORTED_EFFORTS)):
         enum(effort, f"$.supportedEfforts[{index}]", EFFORTS)
+    reasoning = object_(
+        data["reasoningConfig"], "$.reasoningConfig", {"key", "evidenceDigest"}
+    )
+    if reasoning["key"] != "model_reasoning_effort":
+        fail(
+            "$.reasoningConfig.key",
+            "does not name the supported Codex reasoning config key",
+            "capture native proof for exact key 'model_reasoning_effort'",
+        )
+    digest(reasoning["evidenceDigest"], "$.reasoningConfig.evidenceDigest")
     captured = timestamp(data["capturedAt"], "$.capturedAt")
     valid_until = timestamp(data["validUntil"], "$.validUntil")
     if valid_until <= captured:

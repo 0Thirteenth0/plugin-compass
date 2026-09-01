@@ -163,6 +163,12 @@ class BuilderModelTests(unittest.TestCase):
     def test_host_and_worker_receipts_reject_unsupported_or_stale_claims(self):
         bad = fixture("host-capabilities"); bad["supportedEfforts"].append("guess")
         self.assert_invalid("host-capabilities", bad, "supportedEfforts")
+        bad = fixture("host-capabilities"); del bad["reasoningConfig"]
+        self.assert_invalid("host-capabilities", bad, "reasoningConfig")
+        bad = fixture("host-capabilities"); bad["reasoningConfig"]["key"] = "generic.key"
+        self.assert_invalid("host-capabilities", bad, "reasoningConfig.key")
+        bad = fixture("host-capabilities"); bad["reasoningConfig"]["evidenceDigest"] = "unproven"
+        self.assert_invalid("host-capabilities", bad, "reasoningConfig.evidenceDigest")
         bad = fixture("host-capabilities"); bad["capturedAt"] = "2026-09-01"
         self.assert_invalid("host-capabilities", bad, "capturedAt")
         bad = fixture("worker-receipt"); bad["commitSha"] = "c" * 40

@@ -75,10 +75,11 @@ isolation.
 
 The invoking Codex skill captures the current native model catalog/tool metadata in the
 `native-capabilities` input. The snapshot identifies its Codex version, selected model,
-supported effort values, capture source, and capture time. `doctor` validates and hashes
-that snapshot together with CLI evidence; it never claims that generic `-c key=value`
-help proves a reasoning-effort key or value. Version/model mismatch or missing native
-metadata fails closed.
+supported effort values, capture source, capture time, and a closed reasoning-config
+proof naming exact key `model_reasoning_effort` plus its native evidence digest. `doctor`
+validates and hashes that snapshot together with CLI evidence. The reasoning-config proof
+is separate from `cliEvidenceDigest`; generic `-c key=value` help never proves a key or
+value. Version/model mismatch or missing native metadata fails closed.
 
 ## Mode selection
 

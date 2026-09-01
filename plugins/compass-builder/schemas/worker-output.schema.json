@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openai.local/compass-builder/worker-output.schema.json",
+  "title": "Compass Builder worker output v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "status", "summary", "acceptanceChecks", "blocker"],
+  "properties": {
+    "schemaVersion": {"const": "compass-builder.worker-output.v1"},
+    "status": {"enum": ["succeeded", "failed", "blocked"]},
+    "summary": {
+      "type": "string", "minLength": 1, "maxLength": 4000,
+      "pattern": "^(?!\\s)(?:.|[\\r\\n])*(?<!\\s)$"
+    },
+    "acceptanceChecks": {
+      "type": "array", "maxItems": 128,
+      "items": {"$ref": "#/$defs/check"}
+    },
+    "blocker": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "string", "minLength": 1, "maxLength": 4000,
+          "pattern": "^(?!\\s)(?:.|[\\r\\n])*(?<!\\s)$"
+        }
+      ]
+    }
+  },
+  "$defs": {
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["check", "status", "evidence"],
+      "properties": {
+        "check": {
+          "type": "string", "minLength": 1, "maxLength": 2000,
+          "pattern": "^(?!\\s)(?:.|[\\r\\n])*(?<!\\s)$"
+        },
+        "status": {"enum": ["passed", "failed", "not-run"]},
+        "evidence": {
+          "type": "string", "minLength": 1, "maxLength": 4000,
+          "pattern": "^(?!\\s)(?:.|[\\r\\n])*(?<!\\s)$"
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"const": "succeeded"}}, "required": ["status"]},
+      "then": {
+        "properties": {
+          "blocker": {"type": "null"},
+          "acceptanceChecks": {
+            "items": {
+              "allOf": [
+                {"$ref": "#/$defs/check"},
+                {"properties": {"status": {"const": "passed"}}}
+              ]
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "blocker": {
+            "type": "string", "minLength": 1, "maxLength": 4000,
+            "pattern": "^(?!\\s)(?:.|[\\r\\n])*(?<!\\s)$"
+          }
+        }
+      }
+    }
+  ]
+}
