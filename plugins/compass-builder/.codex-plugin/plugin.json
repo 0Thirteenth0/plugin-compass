@@ -1,0 +1,26 @@
+{
+  "name": "compass-builder",
+  "version": "0.1.0",
+  "description": "Scaffold the write-capable companion boundary for future verified Codex build scheduling.",
+  "author": {
+    "name": "Plugin Compass Contributors"
+  },
+  "license": "MIT",
+  "keywords": [
+    "codex-scheduling",
+    "parallel-builds",
+    "worktree-orchestration"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Compass Builder",
+    "shortDescription": "Boundary for native Codex scheduling and verified writes.",
+    "longDescription": "A scaffolded write-capable Plugin Compass companion intended to use native Codex scheduling for verified sequential and isolated parallel build workflows. The runtime is not included yet.",
+    "developerName": "Plugin Compass Contributors",
+    "category": "Productivity",
+    "capabilities": [
+      "Write"
+    ],
+    "defaultPrompt": "Review the Compass Builder scaffold and its planned native scheduling boundary."
+  }
+}

@@ -5,3 +5,4 @@ htmlcov/
 .pytest_cache/
 .mypy_cache/
 scan-result.json
+/.compass-builder/
