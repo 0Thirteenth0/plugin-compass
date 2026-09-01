@@ -1,0 +1,50 @@
+{
+  "schemaVersion": "compass-builder.run-spec.v1",
+  "runId": "cb-example-0123456789abcdef",
+  "baseRef": "refs/heads/main",
+  "baseSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "integrationBranch": "cb/integration",
+  "integrationExpectedSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "mode": "auto",
+  "exactModel": "gpt-5.6-sol",
+  "effortPolicyVersion": "plugin-compass.effort-policy.v1",
+  "hostConcurrencyCeiling": 2,
+  "userConcurrencyCeiling": 2,
+  "validationCommands": ["python -m unittest discover -s tests -v"],
+  "stories": [
+    {
+      "id": "api",
+      "title": "Implement API contract",
+      "description": "Implement the bounded API behavior and focused tests.",
+      "dependsOn": [],
+      "writeScopes": ["src/api", "tests/test_api.py"],
+      "acceptanceChecks": ["Focused API tests pass."],
+      "validationCommands": ["python -m unittest tests.test_api -v"],
+      "independentReviewPath": null,
+      "sharedState": {"mode": "none", "description": "No shared runtime mutation."},
+      "complexity": "medium",
+      "ambiguity": "low",
+      "risk": "medium",
+      "validationStrength": "decisive",
+      "priority": 1,
+      "completionState": "pending"
+    },
+    {
+      "id": "ui",
+      "title": "Implement UI contract",
+      "description": "Implement the bounded UI behavior and focused tests.",
+      "dependsOn": ["api"],
+      "writeScopes": ["src/ui", "tests/test_ui.py"],
+      "acceptanceChecks": ["Focused UI tests pass."],
+      "validationCommands": ["python -m unittest tests.test_ui -v"],
+      "independentReviewPath": null,
+      "sharedState": {"mode": "none", "description": "No shared runtime mutation."},
+      "complexity": "medium",
+      "ambiguity": "medium",
+      "risk": "low",
+      "validationStrength": "decisive",
+      "priority": 2,
+      "completionState": "pending"
+    }
+  ]
+}

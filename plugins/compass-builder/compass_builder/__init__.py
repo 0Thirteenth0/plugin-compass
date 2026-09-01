@@ -21,6 +21,11 @@ from .models import (
     validate_wave_plan,
     validate_worker_receipt,
 )
+from .lease import LeaseError, LeaseHandle, acquire_lease, inspect_lease, release_lease
+from .state import (
+    RepositoryIdentity, StateError, StateStore, build_execution_bundle,
+    load_run_bundle, load_run_inputs, resolve_repository, validate_execution_bundle,
+)
 
 __all__ = [
     "ContractValidationError",
@@ -42,4 +47,17 @@ __all__ = [
     "validate_benchmark_aggregate",
     "validate_benchmark_aggregate_receipts",
     "validate_benchmark_pair",
+    "LeaseError",
+    "LeaseHandle",
+    "acquire_lease",
+    "inspect_lease",
+    "release_lease",
+    "RepositoryIdentity",
+    "StateError",
+    "StateStore",
+    "build_execution_bundle",
+    "load_run_bundle",
+    "load_run_inputs",
+    "resolve_repository",
+    "validate_execution_bundle",
 ]

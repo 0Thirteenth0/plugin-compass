@@ -1,0 +1,6 @@
+interface:
+  display_name: "Compass Builder"
+  short_description: "Coordinate safe resumable repository builds"
+  default_prompt: "Use $compass-builder to plan a dry-run dependency-wave build for this repository."
+policy:
+  allow_implicit_invocation: true

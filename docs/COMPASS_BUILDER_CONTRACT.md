@@ -64,6 +64,14 @@ python plugins/compass-builder/scripts/compass_builder.py benchmark --repo PATH 
 python plugins/compass-builder/scripts/compass_builder.py cleanup --repo PATH --run-id ID
 ```
 
+`plan` emits a closed `compass-builder.plan-bundle.v1` containing the normalized run
+spec, wave plan, host-capability snapshot, planning timestamp, and canonical repository
+identity. Save that output unchanged and pass it to `run --plan`. `run` persists the same
+bundle with controller state so `resume --run-id` reloads the immutable inputs rather
+than accepting caller replacements. Task 5 exposes only `run --dry-run` and
+`resume --dry-run`; these commands persist validated controller transitions while never
+starting a model worker or performing Git integration.
+
 `doctor`, `plan`, `verify-worker`, and `compare` are read-only. Authorized `run`,
 `resume`, `benchmark`, and `cleanup` commands may create registered worktrees, launch
 top-level Codex workers, update controller-owned run state, and perform gated serial Git

@@ -1,0 +1,157 @@
+{
+  "schemaVersion": "compass-builder.plan-bundle.v1",
+  "runSpec": {
+    "schemaVersion": "compass-builder.run-spec.v1",
+    "runId": "cb-example-0123456789abcdef",
+    "baseRef": "refs/heads/main",
+    "baseSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "integrationBranch": "cb/integration",
+    "integrationExpectedSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "mode": "auto",
+    "exactModel": "gpt-5.6-sol",
+    "effortPolicyVersion": "plugin-compass.effort-policy.v1",
+    "hostConcurrencyCeiling": 2,
+    "userConcurrencyCeiling": 2,
+    "validationCommands": [
+      "python -m unittest discover -s tests -v"
+    ],
+    "stories": [
+      {
+        "id": "api",
+        "title": "Implement API contract",
+        "description": "Implement the bounded API behavior and focused tests.",
+        "dependsOn": [],
+        "writeScopes": [
+          "src/api",
+          "tests/test_api.py"
+        ],
+        "acceptanceChecks": [
+          "Focused API tests pass."
+        ],
+        "validationCommands": [
+          "python -m unittest tests.test_api -v"
+        ],
+        "independentReviewPath": null,
+        "sharedState": {
+          "mode": "none",
+          "description": "No shared runtime mutation."
+        },
+        "complexity": "medium",
+        "ambiguity": "low",
+        "risk": "medium",
+        "validationStrength": "decisive",
+        "priority": 1,
+        "completionState": "pending"
+      },
+      {
+        "id": "ui",
+        "title": "Implement UI contract",
+        "description": "Implement the bounded UI behavior and focused tests.",
+        "dependsOn": [
+          "api"
+        ],
+        "writeScopes": [
+          "src/ui",
+          "tests/test_ui.py"
+        ],
+        "acceptanceChecks": [
+          "Focused UI tests pass."
+        ],
+        "validationCommands": [
+          "python -m unittest tests.test_ui -v"
+        ],
+        "independentReviewPath": null,
+        "sharedState": {
+          "mode": "none",
+          "description": "No shared runtime mutation."
+        },
+        "complexity": "medium",
+        "ambiguity": "medium",
+        "risk": "low",
+        "validationStrength": "decisive",
+        "priority": 2,
+        "completionState": "pending"
+      }
+    ]
+  },
+  "wavePlan": {
+    "schemaVersion": "compass-builder.wave-plan.v1",
+    "runId": "cb-example-0123456789abcdef",
+    "baseSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "integrationBranch": "cb/integration",
+    "integrationExpectedSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "normalizedInputDigest": "sha256:b6c420bc2e3d281886a87fd36166e56c25a7b514a1a1cdcc49410c9cc9a50bde",
+    "hostEvidenceDigest": "sha256:c3d16f30ece5a5fa4a9f7f6c3c703102e9aac21e0f97cae0094436c6db0c750b",
+    "effortPolicyVersion": "plugin-compass.effort-policy.v1",
+    "mode": "sequential",
+    "reasons": [
+      "Example uses dependency-ordered sequential waves."
+    ],
+    "concurrency": 1,
+    "stories": [
+      {
+        "storyId": "api",
+        "branch": "cb/cb-example-0123456789abcdef/api",
+        "recommendedEffort": "medium",
+        "handoffDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+      },
+      {
+        "storyId": "ui",
+        "branch": "cb/cb-example-0123456789abcdef/ui",
+        "recommendedEffort": "medium",
+        "handoffDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+      }
+    ],
+    "waves": [
+      {
+        "waveIndex": 0,
+        "storyIds": [
+          "api"
+        ]
+      },
+      {
+        "waveIndex": 1,
+        "storyIds": [
+          "ui"
+        ]
+      }
+    ]
+  },
+  "hostCapabilities": {
+    "captureSource": "native Codex control-plane metadata plus local CLI evidence",
+    "capturedAt": "2026-09-01T12:00:00Z",
+    "cliEvidenceDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "codexVersion": "codex-cli 1.2.3",
+    "gitEvidenceDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "gitVersion": "git version 2.51.0.windows.1",
+    "hostConcurrencyCeiling": 2,
+    "os": "Windows 11",
+    "pythonVersion": "3.11.9",
+    "reasoningConfig": {
+      "evidenceDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "key": "model_reasoning_effort"
+    },
+    "schemaVersion": "compass-builder.host-capabilities.v1",
+    "selectedModel": "gpt-5.6-sol",
+    "supportedEfforts": [
+      "low",
+      "medium",
+      "high",
+      "xhigh"
+    ],
+    "supports": {
+      "multiAgentDisable": true,
+      "structuredOutput": true,
+      "workingDirectoryBinding": true,
+      "worktrees": true
+    },
+    "userConcurrencyCeiling": 2,
+    "validUntil": "2026-09-01T12:05:00Z"
+  },
+  "planningTimestamp": "2026-09-01T12:01:00Z",
+  "repositoryIdentity": {
+    "repositoryRoot": "C:\\\\example\\\\repo",
+    "commonGitDir": "C:\\\\example\\\\repo\\\\.git",
+    "gitDir": "C:\\\\example\\\\repo\\\\.git"
+  }
+}
