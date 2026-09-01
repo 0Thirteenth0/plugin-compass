@@ -248,11 +248,15 @@ Steps:
    `risk`, and `validationStrength`; the wave plan binds the resulting Plugin Compass
    effort proposal and handoff digest.
 2. Encode the run transitions `planned`, `dispatching`, `wave-workers-complete`,
-   `wave-merging`, `wave-integrated-unverified`, `wave-verified`, next-wave
-   `dispatching`, `completed`, and `blocked`. Require `currentWaveIndex` plus an ordered
+   `wave-merging`, `wave-integrated-unverified`, next-branch `wave-merging`,
+   `wave-verified`, next-wave `dispatching`, `completed`, and `blocked`. Require
+   `currentWaveIndex` plus an ordered
    per-branch ledger with worker/verification/integration states, pre-merge expected SHA,
    merge SHA, controller-check digest, and post-check expected SHA; reject every
-   undeclared transition or broken SHA chain.
+   undeclared transition or broken SHA chain. State also requires the actual CAS expected
+   SHA, last clean verified SHA, canonical run-binding digest, nullable active blocker,
+   and bounded append-only blocker history. A blocker records its source state, phase,
+   optional story, reason/evidence digest, and sole permitted resume state.
 3. Bind benchmark receipts to fixture, start SHA, ordered stories, acceptance checks,
    exact model, effort policy, per-story initial effort vector and handoff digests,
    normalized non-mode plan-input digest, controller/prompt versions, toolchain,
@@ -395,7 +399,9 @@ Steps:
 2. Store controller-only state at ignored
    `.compass-builder/runs/<run-id>/state.json`. Write through a same-directory temporary
    file, flush/fsync, and atomically replace. Validate repository identity, SHAs, registered
-   paths, and transition before resume.
+   paths, run-binding digest, blocker-history prefix, and transition before resume. Resume
+   only to the active blocker's recorded target, clear the active blocker, and preserve
+   its durable history entry.
 3. Use collision-resistant run IDs, branches `cb/<run-id>/<story-id>`, dedicated
    `.compass-builder/worktrees/<run-id>/<story-id>` paths, and an exclusive
    integration-branch lease keyed by Git common directory plus branch. Record expected
@@ -405,7 +411,9 @@ Steps:
 5. Persist `currentWaveIndex` and each wave's ordered branch ledger. Resume validates the
    complete pre-merge/merge/post-check SHA chain, continues at the first branch not marked
    `integration-verified`, never re-merges or skips an entry, and moves `wave-verified`
-   back to `dispatching` only when another planned wave exists.
+   back to `dispatching` only when another planned wave exists. Track actual integration
+   HEAD separately from the last clean verified HEAD so a post-merge check failure can
+   retain evidence and rerun verification without re-merging.
 6. Wire `run` and `resume` through `cli.py`; a dry-run fixture must cover every run and
    branch state, next-wave loop, and partial-wave recovery before a live worker is allowed.
 7. Run:

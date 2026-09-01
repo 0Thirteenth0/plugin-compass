@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "https://openai.local/compass-builder/benchmark-workloads.schema.json",
+  "title": "Compass Builder benchmark workload manifest v1", "type": "object", "additionalProperties": false,
+  "required": ["schemaVersion", "pairCount", "workloads"],
+  "properties": {
+    "schemaVersion": {"const": "compass-builder.benchmark-workloads.v1"}, "pairCount": {"type": "integer", "minimum": 5, "maximum": 100},
+    "workloads": {"type": "array", "minItems": 1, "maxItems": 64, "items": {"type": "object", "additionalProperties": false, "required": ["workloadId", "fixtureDigest", "baseSha", "specDigest", "warmups", "pairs"], "properties": {
+      "workloadId": {"$ref": "#/$defs/id"}, "fixtureDigest": {"$ref": "#/$defs/digest"}, "baseSha": {"$ref": "#/$defs/sha"}, "specDigest": {"$ref": "#/$defs/digest"},
+      "warmups": {"type": "array", "minItems": 2, "maxItems": 2, "prefixItems": [{"$ref": "#/$defs/sequentialAttempt"}, {"$ref": "#/$defs/parallelAttempt"}], "items": false},
+      "pairs": {"type": "array", "minItems": 5, "maxItems": 100, "items": {"type": "object", "additionalProperties": false, "required": ["pairNumber", "arms"], "properties": {"pairNumber": {"type": "integer", "minimum": 1}, "arms": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "object", "additionalProperties": false, "required": ["arm", "attemptId"], "properties": {"arm": {"enum": ["sequential", "parallel"]}, "attemptId": {"$ref": "#/$defs/id"}}}}}}}
+    }}}
+  },
+  "$defs": {"id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"}, "sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"}, "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}, "sequentialAttempt": {"type": "object", "additionalProperties": false, "required": ["arm", "attemptId"], "properties": {"arm": {"const": "sequential"}, "attemptId": {"$ref": "#/$defs/id"}}}, "parallelAttempt": {"type": "object", "additionalProperties": false, "required": ["arm", "attemptId"], "properties": {"arm": {"const": "parallel"}, "attemptId": {"$ref": "#/$defs/id"}}}}
+}

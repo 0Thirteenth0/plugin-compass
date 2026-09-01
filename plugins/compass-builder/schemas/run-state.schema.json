@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openai.local/compass-builder/run-state.schema.json",
+  "title": "Compass Builder run state v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "runId", "baseSha", "integrationBranch", "initialIntegrationSha", "expectedIntegrationSha", "lastVerifiedIntegrationSha", "runBindingDigest", "previousState", "state", "currentWaveIndex", "activeBlocker", "blockerHistory", "waves"],
+  "allOf": [
+    {"oneOf": [
+    {"properties": {"previousState": {"type": "null"}, "state": {"const": "planned"}}},
+    {"properties": {"previousState": {"const": "planned"}, "state": {"enum": ["dispatching", "blocked"]}}},
+    {"properties": {"previousState": {"const": "dispatching"}, "state": {"enum": ["wave-workers-complete", "blocked"]}}},
+    {"properties": {"previousState": {"const": "wave-workers-complete"}, "state": {"enum": ["wave-merging", "blocked"]}}},
+    {"properties": {"previousState": {"const": "wave-merging"}, "state": {"enum": ["wave-integrated-unverified", "blocked"]}}},
+    {"properties": {"previousState": {"const": "wave-integrated-unverified"}, "state": {"enum": ["wave-merging", "wave-verified", "blocked"]}}},
+    {"properties": {"previousState": {"const": "wave-verified"}, "state": {"enum": ["dispatching", "completed", "blocked"]}}},
+    {"properties": {"previousState": {"const": "blocked"}, "state": {"enum": ["planned", "dispatching", "wave-workers-complete", "wave-merging", "wave-integrated-unverified", "wave-verified"]}}}
+    ]},
+    {"if": {"properties": {"state": {"const": "blocked"}}}, "then": {"properties": {"activeBlocker": {"$ref": "#/$defs/blocker"}, "blockerHistory": {"minItems": 1}}}, "else": {"properties": {"activeBlocker": {"type": "null"}}}}
+  ],
+  "properties": {
+    "schemaVersion": {"const": "compass-builder.run-state.v1"},
+    "runId": {"$ref": "#/$defs/runId"},
+    "baseSha": {"$ref": "#/$defs/sha"},
+    "integrationBranch": {"$ref": "#/$defs/branch"},
+    "initialIntegrationSha": {"$ref": "#/$defs/sha"},
+    "expectedIntegrationSha": {"$ref": "#/$defs/sha"},
+    "lastVerifiedIntegrationSha": {"$ref": "#/$defs/sha"},
+    "runBindingDigest": {"$ref": "#/$defs/digest"},
+    "previousState": {"anyOf": [{"$ref": "#/$defs/state"}, {"type": "null"}]},
+    "state": {"$ref": "#/$defs/state"},
+    "currentWaveIndex": {"type": "integer", "minimum": 0},
+    "activeBlocker": {"anyOf": [{"$ref": "#/$defs/blocker"}, {"type": "null"}]},
+    "blockerHistory": {"type": "array", "maxItems": 256, "items": {"$ref": "#/$defs/blocker"}},
+    "waves": {"type": "array", "minItems": 1, "maxItems": 128, "items": {"$ref": "#/$defs/wave"}}
+  },
+  "$defs": {
+    "sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "nullableSha": {"type": ["string", "null"], "pattern": "^[0-9a-f]{40}$"},
+    "nullableDigest": {"type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$"},
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "runId": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,31}-[0-9a-f]{16,64}$"},
+    "id": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"},
+    "branch": {"type": "string", "minLength": 1, "maxLength": 240, "pattern": "^(?!@$)(?![-/])(?!.*(?:^|/)\\.)(?!.*(?:^|/)[^/]*\\.[Ll][Oo][Cc][Kk](?:/|$))(?!.*(?:^|/)(?:[Cc][Oo][Nn]|[Pp][Rr][Nn]|[Aa][Uu][Xx]|[Nn][Uu][Ll]|[Cc][Oo][Mm][1-9]|[Ll][Pp][Tt][1-9])(?:\\.[^/]*)?(?:/|$))(?!.*(?:^|/)[^/]*[. ](?:/|$))(?!.*(?:\\.\\.|//|@\\{|\\\\|[\\u0000-\\u0020\\u007f~^:?*\\[\\]<>|]|\\s|\\x22))[^/]+(?:/[^/]+)*(?<![/. ])$"},
+    "state": {"enum": ["planned", "dispatching", "wave-workers-complete", "wave-merging", "wave-integrated-unverified", "wave-verified", "completed", "blocked"]},
+    "activeState": {"enum": ["planned", "dispatching", "wave-workers-complete", "wave-merging", "wave-integrated-unverified", "wave-verified"]},
+    "blocker": {
+      "type": "object", "additionalProperties": false,
+      "required": ["blockerId", "blockedFromState", "phase", "storyId", "reason", "evidenceDigest", "resumeState"],
+      "properties": {
+        "blockerId": {"$ref": "#/$defs/id"},
+        "blockedFromState": {"$ref": "#/$defs/activeState"},
+        "phase": {"enum": ["pre-dispatch", "dispatch", "worker", "verification", "pre-merge", "post-merge-check", "controller"]},
+        "storyId": {"anyOf": [{"$ref": "#/$defs/id"}, {"type": "null"}]},
+        "reason": {"type": "string", "minLength": 1, "maxLength": 2000, "pattern": "^(?!\\s)(?![\\s\\S]*\\s$)[\\s\\S]+$"},
+        "evidenceDigest": {"$ref": "#/$defs/digest"},
+        "resumeState": {"$ref": "#/$defs/activeState"}
+      },
+      "allOf": [
+        {"if": {"properties": {"phase": {"const": "pre-dispatch"}}}, "then": {"properties": {"blockedFromState": {"const": "planned"}, "storyId": {"type": "null"}, "resumeState": {"const": "planned"}}}},
+        {"if": {"properties": {"phase": {"enum": ["dispatch", "worker"]}}}, "then": {"properties": {"blockedFromState": {"const": "dispatching"}, "resumeState": {"const": "dispatching"}}}},
+        {"if": {"properties": {"phase": {"const": "verification"}}}, "then": {"properties": {"blockedFromState": {"const": "wave-workers-complete"}, "resumeState": {"const": "wave-workers-complete"}}}},
+        {"if": {"properties": {"phase": {"const": "pre-merge"}}}, "then": {"properties": {"blockedFromState": {"const": "wave-merging"}, "resumeState": {"const": "wave-merging"}}}},
+        {"if": {"properties": {"phase": {"const": "post-merge-check"}}}, "then": {"properties": {"blockedFromState": {"const": "wave-integrated-unverified"}, "resumeState": {"const": "wave-integrated-unverified"}}}},
+        {"if": {"properties": {"phase": {"enum": ["worker", "verification", "pre-merge", "post-merge-check"]}}}, "then": {"properties": {"storyId": {"$ref": "#/$defs/id"}}}}
+      ]
+    },
+    "wave": {
+      "type": "object", "additionalProperties": false,
+      "required": ["waveIndex", "startExpectedSha", "branches"],
+      "properties": {
+        "waveIndex": {"type": "integer", "minimum": 0},
+        "startExpectedSha": {"$ref": "#/$defs/sha"},
+        "branches": {"type": "array", "minItems": 1, "maxItems": 128, "items": {"$ref": "#/$defs/ledger"}}
+      }
+    },
+    "ledger": {
+      "type": "object", "additionalProperties": false,
+      "required": ["storyId", "branch", "workerState", "verificationState", "integrationState", "preMergeExpectedSha", "mergeSha", "controllerCheckDigest", "postCheckExpectedSha"],
+      "properties": {
+        "storyId": {"$ref": "#/$defs/id"},
+        "branch": {"$ref": "#/$defs/branch"},
+        "workerState": {"enum": ["pending", "running", "complete", "blocked"]},
+        "verificationState": {"enum": ["pending", "verified", "failed"]},
+        "integrationState": {"enum": ["pending", "worker-verified", "merged", "integration-verified", "blocked"]},
+        "preMergeExpectedSha": {"$ref": "#/$defs/sha"},
+        "mergeSha": {"$ref": "#/$defs/nullableSha"},
+        "controllerCheckDigest": {"$ref": "#/$defs/nullableDigest"},
+        "postCheckExpectedSha": {"$ref": "#/$defs/nullableSha"}
+      },
+      "allOf": [
+        {"oneOf": [
+          {"properties": {"workerState": {"const": "pending"}, "verificationState": {"const": "pending"}, "integrationState": {"const": "pending"}}},
+          {"properties": {"workerState": {"const": "running"}, "verificationState": {"const": "pending"}, "integrationState": {"const": "pending"}}},
+          {"properties": {"workerState": {"const": "complete"}, "verificationState": {"const": "pending"}, "integrationState": {"const": "pending"}}},
+          {"properties": {"workerState": {"const": "complete"}, "verificationState": {"const": "verified"}, "integrationState": {"enum": ["worker-verified", "merged", "integration-verified", "blocked"]}}},
+          {"properties": {"workerState": {"const": "complete"}, "verificationState": {"const": "failed"}, "integrationState": {"const": "blocked"}}},
+          {"properties": {"workerState": {"const": "blocked"}, "verificationState": {"enum": ["pending", "failed"]}, "integrationState": {"const": "blocked"}}}
+        ]},
+        {"if": {"properties": {"integrationState": {"enum": ["pending", "worker-verified"]}}}, "then": {"properties": {"mergeSha": {"type": "null"}, "controllerCheckDigest": {"type": "null"}, "postCheckExpectedSha": {"type": "null"}}}},
+        {"if": {"properties": {"integrationState": {"const": "blocked"}}}, "then": {"oneOf": [
+          {"properties": {"mergeSha": {"type": "null"}, "controllerCheckDigest": {"type": "null"}, "postCheckExpectedSha": {"type": "null"}}},
+          {"properties": {"mergeSha": {"$ref": "#/$defs/sha"}, "controllerCheckDigest": {"$ref": "#/$defs/digest"}, "postCheckExpectedSha": {"type": "null"}}}
+        ]}},
+        {"if": {"properties": {"integrationState": {"const": "merged"}}}, "then": {"properties": {"mergeSha": {"$ref": "#/$defs/sha"}, "postCheckExpectedSha": {"type": "null"}}}},
+        {"if": {"properties": {"integrationState": {"const": "integration-verified"}}}, "then": {"properties": {"mergeSha": {"$ref": "#/$defs/sha"}, "controllerCheckDigest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}, "postCheckExpectedSha": {"$ref": "#/$defs/sha"}}}}
+      ]
+    }
+  }
+}

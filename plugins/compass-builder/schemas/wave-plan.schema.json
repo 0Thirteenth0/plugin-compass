@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "https://openai.local/compass-builder/wave-plan.schema.json",
+  "title": "Compass Builder wave plan v1", "type": "object", "additionalProperties": false,
+  "required": ["schemaVersion", "runId", "baseSha", "integrationBranch", "integrationExpectedSha", "normalizedInputDigest", "hostEvidenceDigest", "effortPolicyVersion", "mode", "reasons", "concurrency", "stories", "waves"],
+  "properties": {
+    "schemaVersion": {"const": "compass-builder.wave-plan.v1"}, "runId": {"$ref": "#/$defs/runId"}, "baseSha": {"$ref": "#/$defs/sha"},
+    "integrationBranch": {"$ref": "#/$defs/branch"}, "integrationExpectedSha": {"$ref": "#/$defs/sha"},
+    "normalizedInputDigest": {"$ref": "#/$defs/digest"}, "hostEvidenceDigest": {"$ref": "#/$defs/digest"},
+    "effortPolicyVersion": {"$ref": "#/$defs/version"}, "mode": {"enum": ["sequential", "parallel"]},
+    "reasons": {"type": "array", "minItems": 1, "maxItems": 64, "uniqueItems": true, "items": {"$ref": "#/$defs/nonEmpty"}}, "concurrency": {"type": "integer", "minimum": 1},
+    "stories": {"type": "array", "minItems": 1, "maxItems": 128, "items": {"type": "object", "additionalProperties": false, "required": ["storyId", "branch", "recommendedEffort", "handoffDigest"], "properties": {"storyId": {"$ref": "#/$defs/id"}, "branch": {"$ref": "#/$defs/branch"}, "recommendedEffort": {"$ref": "#/$defs/effort"}, "handoffDigest": {"$ref": "#/$defs/digest"}}}},
+    "waves": {"type": "array", "minItems": 1, "maxItems": 128, "items": {"type": "object", "additionalProperties": false, "required": ["waveIndex", "storyIds"], "properties": {"waveIndex": {"type": "integer", "minimum": 0}, "storyIds": {"type": "array", "minItems": 1, "maxItems": 128, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}}}}}
+  },
+  "$defs": {
+    "nonEmpty": {"type": "string", "minLength": 1, "maxLength": 4096, "pattern": "^(?!\\s)(?![\\s\\S]*\\s$)[\\s\\S]+$"}, "version": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^(?!\\s)(?![\\s\\S]*\\s$)[\\s\\S]+$"}, "sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"}, "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "runId": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,31}-[0-9a-f]{16,64}$"}, "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"},
+    "branch": {"type": "string", "minLength": 1, "maxLength": 240, "pattern": "^(?!@$)(?![-/])(?!.*(?:^|/)\\.)(?!.*(?:^|/)[^/]*\\.[Ll][Oo][Cc][Kk](?:/|$))(?!.*(?:^|/)(?:[Cc][Oo][Nn]|[Pp][Rr][Nn]|[Aa][Uu][Xx]|[Nn][Uu][Ll]|[Cc][Oo][Mm][1-9]|[Ll][Pp][Tt][1-9])(?:\\.[^/]*)?(?:/|$))(?!.*(?:^|/)[^/]*[. ](?:/|$))(?!.*(?:\\.\\.|//|@\\{|\\\\|[\\u0000-\\u0020\\u007f~^:?*\\[\\]<>|]|\\s|\\x22))[^/]+(?:/[^/]+)*(?<![/. ])$"}, "effort": {"enum": ["low", "medium", "high", "xhigh", "max", "ultra"]}
+  }
+}

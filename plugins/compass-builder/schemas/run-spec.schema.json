@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openai.local/compass-builder/run-spec.schema.json",
+  "title": "Compass Builder run spec v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "runId", "baseRef", "baseSha", "integrationBranch", "integrationExpectedSha", "mode", "exactModel", "effortPolicyVersion", "hostConcurrencyCeiling", "userConcurrencyCeiling", "validationCommands", "stories"],
+  "properties": {
+    "schemaVersion": {"const": "compass-builder.run-spec.v1"},
+    "runId": {"$ref": "#/$defs/runId"},
+    "baseRef": {"$ref": "#/$defs/baseRef"},
+    "baseSha": {"$ref": "#/$defs/sha"},
+    "integrationBranch": {"$ref": "#/$defs/branch"},
+    "integrationExpectedSha": {"$ref": "#/$defs/sha"},
+    "mode": {"enum": ["auto", "sequential", "parallel"]},
+    "exactModel": {"allOf": [{"$ref": "#/$defs/model"}, {"not": {"const": "inherit"}}]},
+    "effortPolicyVersion": {"$ref": "#/$defs/version"},
+    "hostConcurrencyCeiling": {"type": "integer", "minimum": 1},
+    "userConcurrencyCeiling": {"type": "integer", "minimum": 1},
+    "validationCommands": {"type": "array", "minItems": 1, "maxItems": 256, "uniqueItems": true, "items": {"$ref": "#/$defs/nonEmpty"}},
+    "stories": {"type": "array", "minItems": 1, "maxItems": 128, "description": "Topologically ordered stories: every dependsOn ID must refer to an earlier array item.", "items": {"$ref": "#/$defs/story"}}
+  },
+  "$defs": {
+    "nonEmpty": {"type": "string", "minLength": 1, "maxLength": 4096, "pattern": "^(?!\\s)(?![\\s\\S]*\\s$)[\\s\\S]+$"},
+    "baseRef": {"type": "string", "minLength": 1, "maxLength": 240, "pattern": "^(?!\\s)(?![\\s\\S]*\\s$)[\\s\\S]+$"},
+    "model": {"type": "string", "minLength": 1, "maxLength": 160, "pattern": "^(?!\\s)(?![\\s\\S]*\\s$)[\\s\\S]+$"},
+    "version": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^(?!\\s)(?![\\s\\S]*\\s$)[\\s\\S]+$"},
+    "sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "runId": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,31}-[0-9a-f]{16,64}$"},
+    "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"},
+    "branch": {"type": "string", "minLength": 1, "maxLength": 240, "pattern": "^(?!@$)(?![-/])(?!.*(?:^|/)\\.)(?!.*(?:^|/)[^/]*\\.[Ll][Oo][Cc][Kk](?:/|$))(?!.*(?:^|/)(?:[Cc][Oo][Nn]|[Pp][Rr][Nn]|[Aa][Uu][Xx]|[Nn][Uu][Ll]|[Cc][Oo][Mm][1-9]|[Ll][Pp][Tt][1-9])(?:\\.[^/]*)?(?:/|$))(?!.*(?:^|/)[^/]*[. ](?:/|$))(?!.*(?:\\.\\.|//|@\\{|\\\\|[\\u0000-\\u0020\\u007f~^:?*\\[\\]<>|]|\\s|\\x22))[^/]+(?:/[^/]+)*(?<![/. ])$"},
+    "scope": {"type": "string", "minLength": 1, "maxLength": 512, "pattern": "^(?!\\s)(?![\\s\\S]*\\s$)(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*[\\u0000-\\u001f\\u007f:<>|?*])(?!.*\\x22)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*//)(?!.*(?:^|/)[^/]*[. ](?:/|$))(?!.*(?:^|/)(?:[Cc][Oo][Nn]|[Pp][Rr][Nn]|[Aa][Uu][Xx]|[Nn][Uu][Ll]|[Cc][Oo][Mm][1-9]|[Ll][Pp][Tt][1-9])(?:\\.[^/]*)?(?:/|$))[^/]+(?:/[^/]+)*$"},
+    "story": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "title", "description", "dependsOn", "writeScopes", "acceptanceChecks", "validationCommands", "independentReviewPath", "sharedState", "priority", "completionState", "complexity", "ambiguity", "risk", "validationStrength"],
+      "anyOf": [
+        {"properties": {"acceptanceChecks": {"minItems": 1}, "validationCommands": {"minItems": 1}}},
+        {"properties": {"independentReviewPath": {"type": "string", "minLength": 1}}}
+      ],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "title": {"type": "string", "minLength": 1, "maxLength": 160, "pattern": "^(?!\\s)(?![\\s\\S]*\\s$)[\\s\\S]+$"},
+        "description": {"type": "string", "minLength": 1, "maxLength": 2000, "pattern": "^(?!\\s)(?![\\s\\S]*\\s$)[\\s\\S]+$"},
+        "dependsOn": {"type": "array", "maxItems": 128, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
+        "writeScopes": {"type": "array", "minItems": 1, "maxItems": 128, "uniqueItems": true, "items": {"$ref": "#/$defs/scope"}},
+        "acceptanceChecks": {"type": "array", "maxItems": 256, "uniqueItems": true, "items": {"$ref": "#/$defs/nonEmpty"}},
+        "validationCommands": {"type": "array", "maxItems": 256, "uniqueItems": true, "items": {"$ref": "#/$defs/nonEmpty"}},
+        "independentReviewPath": {"type": ["string", "null"], "minLength": 1, "maxLength": 1000, "pattern": "^(?!\\s)(?![\\s\\S]*\\s$)[\\s\\S]+$"},
+        "sharedState": {"type": "object", "additionalProperties": false, "required": ["mode", "description"], "properties": {"mode": {"enum": ["none", "read-only", "mutates"]}, "description": {"type": "string", "minLength": 1, "maxLength": 500, "pattern": "^(?!\\s)(?![\\s\\S]*\\s$)[\\s\\S]+$"}}},
+        "priority": {"type": "integer", "minimum": 0},
+        "completionState": {"enum": ["pending", "completed"]},
+        "complexity": {"enum": ["low", "medium", "high"]},
+        "ambiguity": {"enum": ["low", "medium", "high"]},
+        "risk": {"enum": ["low", "medium", "high"]},
+        "validationStrength": {"enum": ["none", "partial", "decisive"]}
+      }
+    }
+  }
+}

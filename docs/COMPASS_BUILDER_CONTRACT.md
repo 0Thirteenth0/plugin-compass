@@ -159,24 +159,42 @@ with `git check-ignore` before any mutation. Its run-level state machine is:
 
 ```text
 planned -> dispatching -> wave-workers-complete -> wave-merging
-        -> wave-integrated-unverified -> wave-verified
+        -> wave-integrated-unverified
+        -> wave-merging (next branch) | wave-verified
         -> dispatching (next wave) | completed
 ```
 
 Any state may transition to `blocked`; `resume` validates the recorded repository,
 immutable SHAs, registered paths, lease, and last completed transition before continuing.
+`blocked` may transition only to the `resumeState` stored in its active blocker record;
+the blocker is appended to durable history before the active field is cleared.
 The integration branch is protected by a controller lease plus compare-and-swap checks
 that require its current HEAD to equal the recorded expected SHA before every merge and
 state transition.
 
-Run state records `currentWaveIndex` and every wave's ordered branch-integration ledger.
+Run state records `currentWaveIndex`, the actual CAS `expectedIntegrationSha`, the last
+clean `lastVerifiedIntegrationSha`, a `runBindingDigest`, nullable `activeBlocker`, bounded
+append-only `blockerHistory`, and every wave's ordered branch-integration ledger.
+`runBindingDigest` is `sha256:` plus SHA-256 of canonical UTF-8 JSON bytes for the closed
+object `{"runSpec": normalizedRunSpec, "wavePlan": normalizedWavePlan}`; the public
+contract helper is the only owner of this formula.
+
+Each blocker record contains a stable blocker ID, source run state, phase, nullable story
+ID, reason, evidence digest, and validated resume state. Supported phases distinguish
+pre-dispatch, dispatch, worker, verification, pre-merge, post-merge check, and controller
+failures. Post-merge check failure retains the merge SHA and attempted-check digest,
+records the actual expected HEAD as the merge SHA, leaves the last verified SHA unchanged,
+and resumes verification without re-merging. Controller-level blockers need not corrupt a
+branch entry.
+
 Each branch entry records worker status, verification status, pre-merge expected SHA,
 merge SHA, controller-check digest, post-check expected SHA, and integration status.
 Within a wave, every verified branch moves through `pending`, `worker-verified`, `merged`,
 and `integration-verified` in plan order. Resume validates the complete recorded SHA chain
 and continues at the first non-`integration-verified` entry; it never re-merges or skips a
-partially integrated branch. `wave-verified` advances to the next wave only after every
-entry is integration-verified.
+partially integrated branch. After an intermediate branch becomes integration-verified,
+the run returns to `wave-merging` for the next ordered branch. `wave-verified` advances to
+the next wave only after every entry is integration-verified.
 
 The controller records a versioned worker receipt containing the registered
 worktree/branch, exact model and effort, base/head SHAs, commit, Git-derived changed files,

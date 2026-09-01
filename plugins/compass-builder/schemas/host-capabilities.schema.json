@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "https://openai.local/compass-builder/host-capabilities.schema.json",
+  "title": "Compass Builder host capabilities v1", "type": "object", "additionalProperties": false,
+  "required": ["schemaVersion", "codexVersion", "selectedModel", "supportedEfforts", "captureSource", "capturedAt", "validUntil", "cliEvidenceDigest", "gitEvidenceDigest", "supports", "os", "pythonVersion", "gitVersion", "hostConcurrencyCeiling", "userConcurrencyCeiling"],
+  "properties": {
+    "schemaVersion": {"const": "compass-builder.host-capabilities.v1"}, "codexVersion": {"$ref": "#/$defs/nonEmpty"}, "selectedModel": {"allOf": [{"$ref": "#/$defs/model"}, {"not": {"const": "inherit"}}]},
+    "supportedEfforts": {"type": "array", "minItems": 1, "maxItems": 6, "uniqueItems": true, "items": {"enum": ["low", "medium", "high", "xhigh", "max", "ultra"]}}, "captureSource": {"$ref": "#/$defs/nonEmpty"}, "capturedAt": {"type": "string", "format": "date-time", "maxLength": 64, "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})$"}, "validUntil": {"type": "string", "format": "date-time", "maxLength": 64, "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})$"},
+    "cliEvidenceDigest": {"$ref": "#/$defs/digest"}, "gitEvidenceDigest": {"$ref": "#/$defs/digest"},
+    "supports": {"type": "object", "additionalProperties": false, "required": ["worktrees", "workingDirectoryBinding", "structuredOutput", "multiAgentDisable"], "properties": {"worktrees": {"type": "boolean"}, "workingDirectoryBinding": {"type": "boolean"}, "structuredOutput": {"type": "boolean"}, "multiAgentDisable": {"type": "boolean"}}},
+    "os": {"$ref": "#/$defs/nonEmpty"}, "pythonVersion": {"$ref": "#/$defs/nonEmpty"}, "gitVersion": {"$ref": "#/$defs/nonEmpty"}, "hostConcurrencyCeiling": {"type": "integer", "minimum": 1}, "userConcurrencyCeiling": {"type": "integer", "minimum": 1}
+  },
+  "$defs": {"nonEmpty": {"type": "string", "minLength": 1, "maxLength": 256, "pattern": "^(?!\\s)(?![\\s\\S]*\\s$)[\\s\\S]+$"}, "model": {"type": "string", "minLength": 1, "maxLength": 160, "pattern": "^(?!\\s)(?![\\s\\S]*\\s$)[\\s\\S]+$"}, "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}}
+}
