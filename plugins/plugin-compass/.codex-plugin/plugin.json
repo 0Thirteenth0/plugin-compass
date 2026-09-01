@@ -1,0 +1,29 @@
+{
+  "name": "plugin-compass",
+  "version": "0.1.0+codex.20260831212556",
+  "description": "Map local Codex plugin capabilities, reduce overlap, and choose with traceable evidence.",
+  "author": {
+    "name": "Plugin Compass Contributors"
+  },
+  "license": "MIT",
+  "keywords": [
+    "capability-inventory",
+    "decision-support",
+    "plugin-analysis"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Plugin Compass",
+    "shortDescription": "Map capabilities. Reduce overlap. Choose with evidence.",
+    "longDescription": "Read-only local decision support for inventorying Codex plugins, assessing relevance and trust, detecting overlap, and generating a minimal evidence-backed capability plan.",
+    "developerName": "Plugin Compass Contributors",
+    "category": "Productivity",
+    "capabilities": [
+      "Read"
+    ],
+    "brandColor": "#0E7490",
+    "composerIcon": "./assets/plugin-compass-icon.png",
+    "logo": "./assets/plugin-compass-icon.png",
+    "defaultPrompt": "Assess my repository and task, then recommend the smallest evidence-backed plugin capability set."
+  }
+}

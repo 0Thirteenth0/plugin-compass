@@ -1,0 +1,30 @@
+{
+  "schema_version": "scan-result.v1",
+  "tool_version": "3.0.18",
+  "policy_pass": false,
+  "verify_pass": true,
+  "scope": "plugin",
+  "packages": [
+    {
+      "ecosystem": "codex",
+      "packageKind": "single-plugin",
+      "rootPath": "plugins/broad-suite",
+      "manifestPath": "plugins/broad-suite/.codex-plugin/plugin.json",
+      "name": "broad-suite",
+      "version": "1.0.0"
+    }
+  ],
+  "findings": [
+    {
+      "ruleId": "FIXTURE_HIGH_RISK",
+      "severity": "high",
+      "title": "Fixture high-risk declaration",
+      "description": "A target-specific unresolved high finding.",
+      "remediation": "Remove the fixture declaration.",
+      "filePath": ".codex-plugin/plugin.json",
+      "lineNumber": 1,
+      "source": "native"
+    }
+  ],
+  "pluginDir": "plugins/broad-suite"
+}

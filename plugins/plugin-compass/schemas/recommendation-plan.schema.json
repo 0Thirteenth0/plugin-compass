@@ -1,0 +1,342 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://plugin-compass.local/schemas/recommendation-plan.schema.json",
+  "title": "Plugin Compass Recommendation Plan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "task",
+    "optimization_goal",
+    "scheduling_guidance",
+    "repository",
+    "plugins",
+    "findings",
+    "triage",
+    "assessments",
+    "overlap_groups",
+    "recommendations",
+    "invocation_routes",
+    "generated_prompt",
+    "evidence"
+  ],
+  "properties": {
+    "schema_version": { "const": "plugin-compass.plan.v3" },
+    "task": { "type": "string" },
+    "optimization_goal": { "enum": ["speed", "cost"] },
+    "scheduling_guidance": {
+      "anyOf": [{ "$ref": "#/$defs/schedulingGuidance" }, { "type": "null" }]
+    },
+    "repository": { "$ref": "#/$defs/repository" },
+    "plugins": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/plugin" }
+    },
+    "findings": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/finding" }
+    },
+    "triage": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/triage" }
+    },
+    "assessments": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/assessment" }
+    },
+    "overlap_groups": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/overlap" }
+    },
+    "recommendations": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/recommendation" }
+    },
+    "invocation_routes": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/invocationRoute" }
+    },
+    "generated_prompt": { "type": "string" },
+    "evidence": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/evidence" }
+    }
+  },
+  "$defs": {
+    "schedulingGuidance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "objective", "enforcement", "model_policy", "effort_bands", "decision_fields",
+        "validation_gate", "escalation_policy", "delegation_policy", "limitations"
+      ],
+      "properties": {
+        "objective": { "const": "fastest_verified_completion" },
+        "enforcement": { "const": "advisory" },
+        "model_policy": { "type": "string" },
+        "effort_bands": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["low", "medium", "high", "above_high"],
+          "properties": {
+            "low": { "type": "string" },
+            "medium": { "type": "string" },
+            "high": { "type": "string" },
+            "above_high": { "type": "string" }
+          }
+        },
+        "decision_fields": { "$ref": "#/$defs/stringArray" },
+        "validation_gate": { "type": "string" },
+        "escalation_policy": { "type": "string" },
+        "delegation_policy": { "type": "string" },
+        "limitations": { "type": "string" }
+      }
+    },
+    "stringArray": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "source", "subject", "detail", "status", "source_version", "target_root"],
+      "properties": {
+        "id": { "type": "string" },
+        "kind": { "type": "string" },
+        "source": { "type": "string" },
+        "subject": { "type": "string" },
+        "detail": { "type": "string" },
+        "status": { "type": "string" },
+        "source_version": { "type": ["string", "null"] },
+        "target_root": { "type": ["string", "null"] }
+      }
+    },
+    "capability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "description", "source", "evidence_refs", "readiness"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "source": { "type": "string" },
+        "evidence_refs": { "$ref": "#/$defs/stringArray" },
+        "readiness": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "root", "references"],
+          "properties": {
+            "status": {"enum": ["not_assessed", "not_declared", "files_present", "missing_files", "unknown"]},
+            "root": {"type": ["string", "null"]},
+            "references": {"$ref": "#/$defs/stringArray"}
+          }
+        }
+      }
+    },
+    "plugin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "plugin_id",
+        "name",
+        "marketplace",
+        "version",
+        "installed",
+        "enabled",
+        "source_root",
+        "manifest_path",
+        "description",
+        "metadata_status",
+        "platforms",
+        "surfaces",
+        "capabilities",
+        "evidence"
+      ],
+      "properties": {
+        "plugin_id": { "type": "string" },
+        "name": { "type": "string" },
+        "marketplace": { "type": "string" },
+        "version": { "type": ["string", "null"] },
+        "installed": { "type": "boolean" },
+        "enabled": { "type": "boolean" },
+        "source_root": { "type": ["string", "null"] },
+        "manifest_path": { "type": ["string", "null"] },
+        "description": { "type": "string" },
+        "metadata_status": { "type": "string" },
+        "platforms": { "$ref": "#/$defs/stringArray" },
+        "surfaces": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["hooks", "mcp", "app"],
+          "properties": {
+            "hooks": { "type": "boolean" },
+            "mcp": { "type": "boolean" },
+            "app": { "type": "boolean" }
+          }
+        },
+        "capabilities": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/capability" }
+        },
+        "evidence": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/evidence" }
+        }
+      }
+    },
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "source_tool",
+        "source_version",
+        "check_id",
+        "severity",
+        "message",
+        "subjects",
+        "paths",
+        "fix_commands",
+        "target_plugin_ids",
+        "target_root",
+        "evidence_refs"
+      ],
+      "properties": {
+        "id": { "type": "string" },
+        "source_tool": { "type": "string" },
+        "source_version": { "type": ["string", "null"] },
+        "check_id": { "type": "string" },
+        "severity": { "type": "string" },
+        "message": { "type": "string" },
+        "subjects": { "$ref": "#/$defs/stringArray" },
+        "paths": { "$ref": "#/$defs/stringArray" },
+        "fix_commands": { "$ref": "#/$defs/stringArray" },
+        "target_plugin_ids": { "$ref": "#/$defs/stringArray" },
+        "target_root": { "type": ["string", "null"] },
+        "evidence_refs": { "$ref": "#/$defs/stringArray" }
+      }
+    },
+    "triage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["finding_id", "state", "rationale"],
+      "properties": {
+        "finding_id": { "type": "string" },
+        "state": {
+          "enum": ["unreviewed", "credible", "suspected-false-positive", "resolved", "unknown"]
+        },
+        "rationale": { "type": "string" }
+      }
+    },
+    "repository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "root",
+        "exists",
+        "empty",
+        "authority_files",
+        "languages",
+        "prohibited_plugins",
+        "has_authority_system",
+        "evidence"
+      ],
+      "properties": {
+        "root": { "type": "string" },
+        "exists": { "type": "boolean" },
+        "empty": { "type": "boolean" },
+        "authority_files": { "$ref": "#/$defs/stringArray" },
+        "languages": { "$ref": "#/$defs/stringArray" },
+        "prohibited_plugins": { "$ref": "#/$defs/stringArray" },
+        "has_authority_system": { "type": "boolean" },
+        "evidence": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/evidence" }
+        }
+      }
+    },
+    "assessment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "plugin_id",
+        "classification",
+        "dimensions",
+        "hard_gates",
+        "rationale",
+        "evidence_refs",
+        "finding_ids",
+        "overlap_groups"
+      ],
+      "properties": {
+        "plugin_id": { "type": "string" },
+        "classification": {
+          "enum": [
+            "Use now",
+            "Useful on demand",
+            "Redundant",
+            "Irrelevant to this project",
+            "Blocked or untrusted",
+            "Unknown or insufficient evidence"
+          ]
+        },
+        "dimensions": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "hard_gates": { "$ref": "#/$defs/stringArray" },
+        "rationale": { "$ref": "#/$defs/stringArray" },
+        "evidence_refs": { "$ref": "#/$defs/stringArray" },
+        "finding_ids": { "$ref": "#/$defs/stringArray" },
+        "overlap_groups": { "$ref": "#/$defs/stringArray" }
+      }
+    },
+    "overlap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["group_id", "capability", "members", "winner", "rationale", "finding_ids", "evidence_refs"],
+      "properties": {
+        "group_id": { "type": "string" },
+        "capability": { "type": "string" },
+        "members": { "$ref": "#/$defs/stringArray" },
+        "winner": { "type": ["string", "null"] },
+        "rationale": { "type": "string" },
+        "finding_ids": { "$ref": "#/$defs/stringArray" },
+        "evidence_refs": { "$ref": "#/$defs/stringArray" }
+      }
+    },
+    "recommendation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["plugin_id", "capability_names", "rationale", "evidence_refs"],
+      "properties": {
+        "plugin_id": { "type": "string" },
+        "capability_names": { "$ref": "#/$defs/stringArray" },
+        "rationale": { "type": "string" },
+        "evidence_refs": { "$ref": "#/$defs/stringArray" }
+      }
+    },
+    "invocationRoute": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "route_id",
+        "plugin_id",
+        "capability_name",
+        "trigger",
+        "invoker",
+        "rationale",
+        "evidence_refs"
+      ],
+      "properties": {
+        "route_id": { "type": "string" },
+        "plugin_id": { "type": "string" },
+        "capability_name": { "type": "string" },
+        "trigger": { "type": "string" },
+        "invoker": { "const": "Codex" },
+        "rationale": { "type": "string" },
+        "evidence_refs": { "$ref": "#/$defs/stringArray" }
+      }
+    }
+  }
+}

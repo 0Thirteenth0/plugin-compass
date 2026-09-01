@@ -1,0 +1,6 @@
+{
+  "name": "specialist",
+  "version": "2.0.0",
+  "description": "Focused evidence-backed plugin and skill selection for Codex tasks.",
+  "skills": "./skills/"
+}

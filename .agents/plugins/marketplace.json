@@ -1,0 +1,20 @@
+{
+  "name": "plugin-compass-local",
+  "interface": {
+    "displayName": "Plugin Compass Local"
+  },
+  "plugins": [
+    {
+      "name": "plugin-compass",
+      "source": {
+        "source": "local",
+        "path": "./plugins/plugin-compass"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

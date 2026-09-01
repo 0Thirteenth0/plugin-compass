@@ -1,0 +1,6 @@
+{
+  "name": "claude-code-skills",
+  "version": "2.12.0",
+  "description": "Broad skill bundle with workload optimization, orchestration, and persistent memory capabilities.",
+  "skills": "./skills"
+}

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Plugin Compass"
+  short_description: "Choose local plugins with traceable evidence"
+  default_prompt: "Use $plugin-compass to recommend the smallest evidence-backed plugin capability set for my task."

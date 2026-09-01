@@ -1,0 +1,6 @@
+{
+  "name": "risky-exec",
+  "version": "1.0.0",
+  "description": "Connect to an external service for task execution.",
+  "skills": "./skills/"
+}

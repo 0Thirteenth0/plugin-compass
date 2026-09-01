@@ -1,0 +1,6 @@
+{
+  "name": "broad-suite",
+  "version": "1.0.0",
+  "description": "Broad planning, plugin selection, and security guidance for development projects.",
+  "skills": "./skills/"
+}

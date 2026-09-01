@@ -1,0 +1,6 @@
+{
+  "name": "memory-plugin",
+  "version": "1.0.0",
+  "description": "Maintain persistent memory and a task ledger across sessions.",
+  "skills": "./skills/"
+}

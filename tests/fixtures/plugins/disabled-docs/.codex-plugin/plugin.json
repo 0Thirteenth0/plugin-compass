@@ -1,0 +1,6 @@
+{
+  "name": "disabled-docs",
+  "version": "1.0.0",
+  "description": "Focused technical documentation writing.",
+  "skills": "./skills/"
+}

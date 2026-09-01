@@ -1,0 +1,67 @@
+{
+  "installed": [
+    {
+      "pluginId": "broad-suite@fixture",
+      "name": "broad-suite",
+      "marketplaceName": "fixture",
+      "version": "1.0.0",
+      "installed": true,
+      "enabled": true,
+      "source": { "source": "local", "path": "plugins/broad-suite" }
+    },
+    {
+      "pluginId": "specialist@fixture",
+      "name": "specialist",
+      "marketplaceName": "fixture",
+      "version": "2.0.0",
+      "installed": true,
+      "enabled": true,
+      "source": { "source": "local", "path": "plugins/specialist" }
+    },
+    {
+      "pluginId": "disabled-docs@fixture",
+      "name": "disabled-docs",
+      "marketplaceName": "fixture",
+      "version": "1.0.0",
+      "installed": true,
+      "enabled": false,
+      "source": { "source": "local", "path": "plugins/disabled-docs" }
+    },
+    {
+      "pluginId": "risky-exec@fixture",
+      "name": "risky-exec",
+      "marketplaceName": "fixture",
+      "version": "1.0.0",
+      "installed": true,
+      "enabled": true,
+      "source": { "source": "local", "path": "plugins/risky-exec" }
+    },
+    {
+      "pluginId": "memory-plugin@fixture",
+      "name": "memory-plugin",
+      "marketplaceName": "fixture",
+      "version": "1.0.0",
+      "installed": true,
+      "enabled": true,
+      "source": { "source": "local", "path": "plugins/memory-plugin" }
+    },
+    {
+      "pluginId": "claude-code-skills@fixture",
+      "name": "claude-code-skills",
+      "marketplaceName": "fixture",
+      "version": "2.12.0",
+      "installed": true,
+      "enabled": true,
+      "source": { "source": "local", "path": "plugins/claude-code-skills" }
+    },
+    {
+      "pluginId": "malformed@fixture",
+      "name": "malformed",
+      "marketplaceName": "fixture",
+      "installed": true,
+      "enabled": true,
+      "source": { "source": "local", "path": "plugins/malformed" }
+    }
+  ],
+  "available": []
+}

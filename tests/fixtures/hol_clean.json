@@ -1,0 +1,19 @@
+{
+  "schema_version": "scan-result.v1",
+  "tool_version": "3.0.18",
+  "policy_pass": true,
+  "verify_pass": true,
+  "scope": "plugin",
+  "packages": [
+    {
+      "ecosystem": "codex",
+      "packageKind": "single-plugin",
+      "rootPath": "plugins/specialist",
+      "manifestPath": "plugins/specialist/.codex-plugin/plugin.json",
+      "name": "specialist",
+      "version": "2.0.0"
+    }
+  ],
+  "findings": [],
+  "pluginDir": "plugins/specialist"
+}

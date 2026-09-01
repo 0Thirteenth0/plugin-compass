@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://plugin-compass.local/schemas/handoff.schema.json",
+  "title": "Plugin Compass Native Dispatch Handoff",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "decision_id", "status", "objective", "enforcement", "evidence_basis", "task_id", "selected_model", "supported_efforts", "support_evidence", "assessment", "acceptance_checks", "recommended_effort", "rationale", "dispatch_tool", "dispatch_arguments", "max_reasoning_retries", "previous_attempt", "validation_owner", "limitations"],
+  "properties": {
+    "schema_version": {"const": "plugin-compass.handoff.v1"},
+    "decision_id": {"type": "string"},
+    "status": {"enum": ["proposed", "keep_local", "needs_authorization", "needs_validation", "needs_diagnosis", "needs_review", "needs_supported_effort"]},
+    "objective": {"const": "fastest_verified_completion"},
+    "enforcement": {"const": "proposal_only"},
+    "evidence_basis": {"const": "caller_supplied_task_and_host_capabilities"},
+    "task_id": {"type": "string"},
+    "selected_model": {"type": "string"},
+    "supported_efforts": {"type": "array", "uniqueItems": true, "items": {"enum": ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"]}},
+    "support_evidence": {"type": "string"},
+    "assessment": {
+      "type": "object", "additionalProperties": false,
+      "required": ["complexity", "ambiguity", "risk", "validation_strength", "rationale"],
+      "properties": {
+        "complexity": {"enum": ["low", "medium", "high"]},
+        "ambiguity": {"enum": ["low", "medium", "high"]},
+        "risk": {"enum": ["low", "medium", "high"]},
+        "validation_strength": {"enum": ["decisive", "partial", "none"]},
+        "rationale": {"type": "string"}
+      }
+    },
+    "acceptance_checks": {"type": "array", "items": {"type": "string"}},
+    "recommended_effort": {"anyOf": [{"enum": ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"]}, {"type": "null"}]},
+    "rationale": {"type": "string"},
+    "dispatch_tool": {"const": "collaboration.spawn_agent"},
+    "dispatch_arguments": {
+      "anyOf": [
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["task_name", "message", "fork_turns", "reasoning_effort"],
+          "properties": {
+            "task_name": {"type": "string"},
+            "message": {"type": "string"},
+            "fork_turns": {"const": "none"},
+            "reasoning_effort": {"enum": ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"]},
+            "model": {"type": "string"}
+          }
+        },
+        {"type": "null"}
+      ]
+    },
+    "max_reasoning_retries": {"const": 1},
+    "previous_attempt": {"type": ["object", "null"]},
+    "validation_owner": {"type": "string"},
+    "limitations": {"type": "string"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"const": "proposed"}}},
+      "then": {"properties": {"dispatch_arguments": {"type": "object"}, "recommended_effort": {"type": "string"}}},
+      "else": {"properties": {"dispatch_arguments": {"type": "null"}, "recommended_effort": {"type": "null"}}}
+    }
+  ]
+}

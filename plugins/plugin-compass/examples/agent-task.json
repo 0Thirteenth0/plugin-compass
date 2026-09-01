@@ -1,0 +1,21 @@
+{
+  "schema_version": "plugin-compass.agent-task.v1",
+  "task_id": "inspect_schema",
+  "task": "Compare a fixture with its declared JSON Schema and report mismatches.",
+  "context": "Read only the supplied fixture and schema. Do not edit files or launch agents.",
+  "selected_model": "inherit",
+  "supported_efforts": ["low", "medium", "high"],
+  "support_evidence": "Replace with the current native dispatch tool or custom-agent contract observed this turn.",
+  "assessment": {
+    "complexity": "low",
+    "ambiguity": "low",
+    "risk": "low",
+    "validation_strength": "decisive",
+    "rationale": "A bounded comparison with a machine-readable schema and no writes."
+  },
+  "acceptance_checks": [
+    "Run the appropriate schema validator and report its actual result."
+  ],
+  "delegation_authorized": false,
+  "delegation_worthwhile": true
+}

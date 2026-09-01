@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Plugin Compass Inconclusive Inventory",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "status", "code", "source", "message", "recovery"],
+  "properties": {
+    "schema_version": { "const": "plugin-compass.diagnostic.v1" },
+    "status": { "const": "inconclusive" },
+    "code": { "const": "CODEX_INVENTORY_EMPTY" },
+    "source": { "const": "command:codex plugin list --json" },
+    "message": { "type": "string" },
+    "recovery": { "type": "string" }
+  }
+}
