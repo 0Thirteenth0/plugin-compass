@@ -22,10 +22,13 @@ from .models import (
     validate_worker_receipt,
 )
 from .lease import LeaseError, LeaseHandle, acquire_lease, inspect_lease, release_lease
+from .cleanup import CleanupError, cleanup_run
+from .integrator import IntegrationError, IntegrationResult, integrate_verified_branch
 from .state import (
     RepositoryIdentity, StateError, StateStore, build_execution_bundle,
     load_run_bundle, load_run_inputs, resolve_repository, validate_execution_bundle,
 )
+from .verifier import VerificationError, VerifiedWorker, verify_worker
 
 __all__ = [
     "ContractValidationError",
@@ -52,6 +55,14 @@ __all__ = [
     "acquire_lease",
     "inspect_lease",
     "release_lease",
+    "CleanupError",
+    "cleanup_run",
+    "IntegrationError",
+    "IntegrationResult",
+    "integrate_verified_branch",
+    "VerificationError",
+    "VerifiedWorker",
+    "verify_worker",
     "RepositoryIdentity",
     "StateError",
     "StateStore",

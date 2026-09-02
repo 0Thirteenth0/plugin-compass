@@ -1,7 +1,8 @@
-"""Controller-owned durable state and resumable dry-run composition.
+"""Controller-owned state transitions and repository-bound CAS validation.
 
-This module validates repository and run bindings, but deliberately performs no
-worker dispatch, verification, merge, integration, or cleanup.
+Worker execution and Git mutation stay in their dedicated controllers; this
+module publishes only validated state transitions and delegates auxiliary
+immutable evidence storage to :mod:`durable_artifacts`.
 """
 
 from __future__ import annotations
@@ -10,13 +11,24 @@ import copy
 import hashlib
 import json
 import os
-import stat
 import subprocess
 import tempfile
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping
 
+from .git_environment import GitEnvironment, validate_git_environment
+from .durable_artifacts import (
+    ArtifactJournal, DIRECTORIES as RUN_DIRECTORY_ARTIFACTS,
+    accepts as accepts_artifacts,
+)
+from .git_objects import GitObjectError, reject_active_grafts
+from .errors import StateError
+from .repository import RepositoryIdentity, git_text as _git, resolve_repository
+from .secure_files import (
+    is_reparse as _is_reparse, read_no_follow, reject_reparse_components,
+    require_contained as _require_contained, write_new_no_follow,
+)
+_reject_existing_reparse_components = reject_reparse_components
 from ._validation import branch as validate_branch
 from ._validation import run_id as validate_run_id
 from .models import (
@@ -29,158 +41,12 @@ from .models import (
 )
 
 
-class StateError(ValueError):
-    """Durable controller state cannot be trusted or advanced safely."""
-
-
-@dataclass(frozen=True)
-class RepositoryIdentity:
-    """Canonical identity shared by every worktree of one Git repository."""
-
-    root: Path
-    common_git_dir: Path
-    git_dir: Path
-
-
-def _is_reparse(path: Path) -> bool:
-    if not path.exists() and not path.is_symlink():
-        return False
-    stat = path.lstat()
-    return path.is_symlink() or bool(
-        getattr(stat, "st_file_attributes", 0)
-        & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
-    )
-
-
-def _reject_existing_reparse_components(path: Path, *, label: str) -> None:
-    """Reject lexical aliases before ``resolve`` can erase their identity."""
-
-    raw = Path(path).absolute()
-    for component in (raw, *raw.parents):
-        if component.exists() and _is_reparse(component):
-            raise StateError(f"{label} contains a symlink or reparse ancestor: {component}")
-
-
 def _read_file_no_follow(path: Path, root: Path, *, label: str) -> bytes:
-    _require_contained(path, root, label=label)
-    _reject_existing_reparse_components(path, label=label)
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
-    try:
-        descriptor = os.open(path, flags)
-    except OSError as exc:
-        raise StateError(f"{label} is unavailable: {exc}") from exc
-    try:
-        opened = os.fstat(descriptor)
-        if not stat.S_ISREG(opened.st_mode):
-            raise StateError(f"{label} is not a regular file")
-        with os.fdopen(descriptor, "rb", closefd=False) as stream:
-            payload = stream.read()
-        named = os.stat(path, follow_symlinks=False)
-        if (named.st_dev, named.st_ino) != (opened.st_dev, opened.st_ino):
-            raise StateError(f"{label} changed while it was read")
-        return payload
-    except OSError as exc:
-        raise StateError(f"{label} could not be read safely: {exc}") from exc
-    finally:
-        os.close(descriptor)
+    return read_no_follow(path, root, label=label, max_bytes=16_777_216)
 
 
 def _write_new_file(path: Path, payload: bytes, root: Path, *, label: str) -> None:
-    _require_contained(path, root, label=label)
-    _reject_existing_reparse_components(path.parent, label=label)
-    if path.exists() or path.is_symlink():
-        raise StateError(f"{label} already exists")
-    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
-    try:
-        descriptor = os.open(path, flags, 0o600)
-        with os.fdopen(descriptor, "wb") as stream:
-            stream.write(payload)
-            stream.flush()
-            os.fsync(stream.fileno())
-    except OSError as exc:
-        raise StateError(f"{label} publication failed: {exc}") from exc
-
-
-def _git(repo: Path, arguments: list[str], *, check: bool = True) -> str:
-    try:
-        result = subprocess.run(
-            ["git", "-C", str(repo), *arguments],
-            check=False,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="strict",
-            shell=False,
-            timeout=20,
-        )
-    except (OSError, subprocess.TimeoutExpired, UnicodeError) as exc:
-        raise StateError(f"Git repository evidence is unavailable: {exc}") from exc
-    if check and result.returncode != 0:
-        detail = result.stderr.strip() or result.stdout.strip() or "Git command failed"
-        raise StateError(f"Git repository evidence failed closed: {detail}")
-    return result.stdout
-
-
-def resolve_repository(repository: Path) -> RepositoryIdentity:
-    """Resolve an exact checkout root and its canonical Git common directory."""
-
-    raw = Path(repository)
-    if not raw.is_absolute():
-        raise StateError("repository path must be absolute")
-    _reject_existing_reparse_components(raw, label="repository path")
-    if _is_reparse(raw):
-        raise StateError("repository root may not be a symlink or reparse point")
-    try:
-        requested = raw.resolve(strict=True)
-    except OSError as exc:
-        raise StateError(f"repository path is missing or unreadable: {exc}") from exc
-    if not requested.is_dir() or _is_reparse(requested):
-        raise StateError("repository root must be a real non-reparse directory")
-    output = _git(
-        requested,
-        ["rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir", "--git-dir"],
-    ).splitlines()
-    if len(output) != 3:
-        raise StateError("Git returned ambiguous repository identity evidence")
-    try:
-        output_paths = tuple(Path(item) for item in output)
-        for item in output_paths:
-            _reject_existing_reparse_components(item, label="Git repository identity")
-        root, common, git_dir = (item.resolve(strict=True) for item in output_paths)
-    except OSError as exc:
-        raise StateError(f"Git repository identity contains an unreadable path: {exc}") from exc
-    if root != requested:
-        raise StateError("repository path must name the canonical checkout root exactly")
-    if any(not path.is_dir() or _is_reparse(path) for path in (root, common, git_dir)):
-        raise StateError("repository identity contains a non-directory or reparse target")
-    return RepositoryIdentity(root=root, common_git_dir=common, git_dir=git_dir)
-
-
-def _require_contained(path: Path, root: Path, *, label: str) -> Path:
-    lexical = path.absolute()
-    lexical_root = root.absolute()
-    current = lexical
-    while current != lexical_root.parent:
-        if current.exists() and _is_reparse(current):
-            raise StateError(f"{label} contains a reparse point: {current}")
-        if current == lexical_root:
-            break
-        current = current.parent
-    try:
-        resolved = path.resolve(strict=False)
-        resolved.relative_to(root)
-    except (OSError, ValueError) as exc:
-        raise StateError(f"{label} escapes its registered controller root") from exc
-    if resolved in {root, root.parent}:
-        raise StateError(f"{label} may not target the repository or controller root")
-    current = resolved
-    while current != root.parent:
-        if current.exists() and _is_reparse(current):
-            raise StateError(f"{label} contains a reparse point: {current}")
-        if current == root:
-            break
-        current = current.parent
-    return resolved
+    write_new_no_follow(path, payload, root, label=label)
 
 
 class StateStore:
@@ -191,8 +57,12 @@ class StateStore:
         repository: Path,
         run_spec: Mapping[str, object],
         wave_plan: Mapping[str, object],
+        git_environment: GitEnvironment | None = None,
     ) -> None:
-        self.repository = resolve_repository(Path(repository))
+        self.git_environment = (
+            validate_git_environment(git_environment) if git_environment is not None else None
+        )
+        self.repository = resolve_repository(Path(repository), self.git_environment)
         try:
             self.spec, self.plan, _ = validate_run_structure_bindings(run_spec, wave_plan)
         except ValueError as exc:
@@ -216,12 +86,16 @@ class StateStore:
             result = subprocess.run(
                 ["git", "-C", str(self.repository.root), "check-ignore", "--quiet", "--no-index", probe],
                 check=False, capture_output=True, shell=False, timeout=20,
+                env=(dict(self.git_environment.environment) if self.git_environment else None),
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
             raise StateError(f"ignore evidence is unavailable: {exc}") from exc
         if result.returncode != 0:
             raise StateError(".compass-builder must be ignored before controller state is used")
-        tracked = _git(self.repository.root, ["ls-files", "--", ".compass-builder"])
+        tracked = _git(
+            self.repository.root, ["ls-files", "--", ".compass-builder"],
+            git_environment=self.git_environment,
+        )
         if tracked.strip():
             raise StateError(".compass-builder must be absent from the repository index")
         _require_contained(self.run_root, self.control_root, label="run state path")
@@ -262,8 +136,12 @@ class StateStore:
         )
 
     def observed_integration_head(self) -> str:
+        self._reject_grafts()
         ref = f"refs/heads/{self.spec['integrationBranch']}^{{commit}}"
-        value = _git(self.repository.root, ["rev-parse", "--verify", ref]).strip()
+        value = _git(
+            self.repository.root, ["rev-parse", "--verify", ref],
+            git_environment=self.git_environment,
+        ).strip()
         if len(value) != 40 or any(character not in "0123456789abcdef" for character in value):
             raise StateError("integration branch did not resolve to one immutable lowercase SHA")
         return value
@@ -333,14 +211,22 @@ class StateStore:
         return normalized
 
     def _git_status(self, arguments: list[str]) -> int:
+        self._reject_grafts()
         try:
             result = subprocess.run(
                 ["git", "-C", str(self.repository.root), *arguments],
                 check=False, capture_output=True, shell=False, timeout=20,
+                env=(dict(self.git_environment.environment) if self.git_environment else None),
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
             raise StateError(f"Git object evidence is unavailable: {exc}") from exc
         return result.returncode
+
+    def _reject_grafts(self) -> None:
+        try:
+            reject_active_grafts(self.repository.common_git_dir)
+        except GitObjectError as exc:
+            raise StateError(str(exc)) from exc
 
     def _validate_git_sha_chain(self, state: Mapping[str, object]) -> None:
         shas = {
@@ -409,11 +295,16 @@ class StateStore:
             names = {path.name for path in self.run_root.iterdir()}
         except OSError as exc:
             raise StateError(f"durable run artifact set is unavailable: {exc}") from exc
-        without_bundle = {"transaction.json", "controller.json", "state.json"}
-        with_bundle = without_bundle | {"plan-bundle.json"}
-        allowed = (with_bundle,) if require_bundle else (without_bundle, with_bundle)
-        if names not in allowed:
+        if not accepts_artifacts(names):
             raise StateError("durable run artifact set is partial or contains unknown files")
+        if require_bundle and "plan-bundle.json" not in names:
+            raise StateError("durable run artifact set is missing its immutable plan bundle")
+        for directory_name in RUN_DIRECTORY_ARTIFACTS:
+            candidate = self.run_root / directory_name
+            if directory_name in names and (
+                not candidate.is_dir() or _is_reparse(candidate)
+            ):
+                raise StateError(f"durable {directory_name} artifact must be a real directory")
         try:
             transaction = json.loads(
                 _read_file_no_follow(
@@ -431,7 +322,9 @@ class StateStore:
         if transaction != expected:
             raise StateError("durable create transaction marker does not bind this run")
 
-    def load(self) -> dict[str, object]:
+    def load_durable_state(self) -> dict[str, object]:
+        """Load validated durable state without asserting current integration HEAD."""
+
         self._validate_publication()
         self._validate_registry()
         try:
@@ -448,7 +341,10 @@ class StateStore:
             raise StateError(f"durable run state is malformed: {exc}") from exc
         if not isinstance(decoded, dict):
             raise StateError("durable run state must be a JSON object")
-        state = self._validate_state(decoded)
+        return self._validate_state(decoded)
+
+    def load(self) -> dict[str, object]:
+        state = self.load_durable_state()
         self.compare_and_swap(str(state["expectedIntegrationSha"]))
         return state
 
@@ -508,7 +404,9 @@ class StateStore:
         self.compare_and_swap(str(normalized["expectedIntegrationSha"]))
         bundle: dict[str, object] | None = None
         if execution_bundle is not None:
-            bundle = validate_execution_bundle(execution_bundle, self.repository.root)
+            bundle = validate_execution_bundle(
+                execution_bundle, self.repository.root, self.git_environment
+            )
             if (
                 canonical_json(bundle["runSpec"], "run-spec")
                 != canonical_json(self.spec, "run-spec")
@@ -591,6 +489,155 @@ class StateStore:
         self._atomic_replace(after)
         return after
 
+    def record_integration_merge(
+        self, previous: Mapping[str, object], *, story_id: str, merge_sha: str
+    ) -> dict[str, object]:
+        """Atomically bind one already-proven Git merge to the durable ordered ledger."""
+
+        before = self._validate_state(previous)
+        current = copy.deepcopy(before)
+        entries = current["waves"][current["currentWaveIndex"]]["branches"]
+        matches = [entry for entry in entries if entry["storyId"] == story_id]
+        if len(matches) != 1:
+            raise StateError("integration merge does not identify one current-wave story")
+        current.update(
+            previousState="wave-merging", state="wave-integrated-unverified",
+            expectedIntegrationSha=merge_sha,
+        )
+        matches[0].update(integrationState="merged", mergeSha=merge_sha)
+        after = self._validate_state(current)
+        try:
+            validate_run_state_transition(before, after)
+        except ValueError as exc:
+            raise StateError(f"post-merge run state transition is invalid: {exc}") from exc
+        self._validate_publication()
+        self._validate_registry()
+        raw = _read_file_no_follow(
+            self.path, self.run_root, label="durable pre-merge run state"
+        )
+        if raw != canonical_json(before, "run-state"):
+            raise StateError("durable state changed while Git merge was in progress")
+        self.compare_and_swap(merge_sha)
+        self._atomic_replace(after)
+        return after
+
+    def _record_receipt(self, directory_name: str, record: Mapping[str, object]) -> Path:
+        try:
+            return ArtifactJournal(self.run_root, self.control_root).record(directory_name, record)
+        except (OSError, ValueError) as exc:
+            raise StateError(str(exc)) from exc
+
+    def record_merge_intent(
+        self, previous: Mapping[str, object], *, story_id: str,
+        expected_sha: str, verified_head_sha: str,
+    ) -> dict[str, object]:
+        """Persist immutable recovery evidence before changing integration Git."""
+
+        before = self._validate_state(previous)
+        if before["state"] != "wave-merging" or before["expectedIntegrationSha"] != expected_sha:
+            raise StateError("merge intent does not bind the active integration CAS")
+        record = {
+            "schemaVersion": "compass-builder.merge-intent.v1", "runId": self.run_id,
+            "storyId": story_id, "expectedSha": expected_sha,
+            "verifiedHeadSha": verified_head_sha,
+        }
+        self._record_receipt("merge-intents", record)
+        return record
+
+    def record_blocker(
+        self,
+        previous: Mapping[str, object],
+        *,
+        reason: str,
+        evidence_digest: str,
+        story_id: str | None = None,
+    ) -> dict[str, object] | None:
+        """Best-effort active blocker plus immutable failure evidence."""
+
+        before = self._validate_state(previous)
+        self.record_failure_evidence(
+            blocked_from_state=str(before["state"]), reason=reason,
+            evidence_digest=evidence_digest, story_id=story_id,
+        )
+        blocked = copy.deepcopy(before)
+        blocker = {
+            "blockerId": f"controller-{evidence_digest[7:23]}",
+            "blockedFromState": before["state"], "phase": "controller",
+            "storyId": story_id, "reason": reason[:2000],
+            "evidenceDigest": evidence_digest, "resumeState": before["state"],
+        }
+        blocked.update(
+            previousState=before["state"], state="blocked", activeBlocker=blocker,
+            blockerHistory=[*blocked["blockerHistory"], blocker],
+        )
+        try:
+            return self.write_transition(before, blocked)
+        except StateError:
+            return None
+
+    def record_failure_evidence(
+        self, *, blocked_from_state: str, reason: str,
+        evidence_digest: str, story_id: str | None = None,
+        observed_head: str | None = None,
+    ) -> dict[str, object]:
+        """Append immutable failure evidence without changing shared run state."""
+
+        record = {
+            "schemaVersion": "compass-builder.failure.v1", "runId": self.run_id,
+            "blockedFromState": blocked_from_state, "storyId": story_id,
+            "reason": reason[:2000], "evidenceDigest": evidence_digest,
+            "observedHead": observed_head,
+        }
+        self._record_receipt("failure-records", record)
+        return record
+
+    def failure_records(self) -> tuple[dict[str, object], ...]:
+        self._validate_publication()
+        try:
+            return ArtifactJournal(self.run_root, self.control_root).read("failure-records")
+        except (OSError, ValueError) as exc:
+            raise StateError(str(exc)) from exc
+
+    def cleanup_progress(self) -> tuple[dict[str, object], ...]:
+        self._validate_publication()
+        try:
+            return ArtifactJournal(self.run_root, self.control_root).read("cleanup-progress")
+        except (OSError, ValueError) as exc:
+            raise StateError(str(exc)) from exc
+
+    def merge_intents(self) -> tuple[dict[str, object], ...]:
+        self._validate_publication()
+        try:
+            records = ArtifactJournal(self.run_root, self.control_root).read("merge-intents")
+        except (OSError, ValueError) as exc:
+            raise StateError(str(exc)) from exc
+        expected = {
+            "schemaVersion", "runId", "storyId", "expectedSha", "verifiedHeadSha",
+        }
+        for record in records:
+            if set(record) != expected or record["schemaVersion"] != "compass-builder.merge-intent.v1":
+                raise StateError("durable merge intent is malformed")
+            if record["runId"] != self.run_id:
+                raise StateError("durable merge intent belongs to another run")
+            for field in ("expectedSha", "verifiedHeadSha"):
+                value = record[field]
+                if not isinstance(value, str) or len(value) != 40 or any(c not in "0123456789abcdef" for c in value):
+                    raise StateError("durable merge intent contains an invalid commit identity")
+        return records
+
+    def record_cleanup_progress(
+        self, *, story_id: str, worktree: str, head_sha: str, status: str
+    ) -> dict[str, object]:
+        if status not in {"removing", "removed"}:
+            raise StateError("cleanup progress status is invalid")
+        record = {
+            "schemaVersion": "compass-builder.cleanup-progress.v1", "runId": self.run_id,
+            "storyId": story_id, "worktree": worktree, "headSha": head_sha,
+            "status": status,
+        }
+        self._record_receipt("cleanup-progress", record)
+        return record
+
     def resume_state(
         self, blocked: Mapping[str, object]
     ) -> dict[str, object]:
@@ -666,122 +713,10 @@ class StateStore:
         }
 
 
-def build_execution_bundle(
-    run_spec: Mapping[str, object],
-    wave_plan: Mapping[str, object],
-    host_capabilities: Mapping[str, object],
-    planning_timestamp: str,
-    repository: Path,
-) -> dict[str, object]:
-    """Build the closed public plan artifact consumed unchanged by ``run``."""
-
-    identity = resolve_repository(repository)
-    try:
-        spec, plan, _ = validate_run_bindings(
-            run_spec, wave_plan, host_capabilities=host_capabilities,
-            planning_timestamp=planning_timestamp,
-        )
-    except ValueError as exc:
-        raise StateError(f"execution bundle bindings are invalid: {exc}") from exc
-    bundle = {
-        "schemaVersion": "compass-builder.plan-bundle.v1",
-        "runSpec": spec,
-        "wavePlan": plan,
-        "hostCapabilities": copy.deepcopy(dict(host_capabilities)),
-        "planningTimestamp": planning_timestamp,
-        "repositoryIdentity": {
-            "repositoryRoot": str(identity.root),
-            "commonGitDir": str(identity.common_git_dir),
-            "gitDir": str(identity.git_dir),
-        },
-    }
-    return validate_execution_bundle(bundle, identity.root)
-
-
-def validate_execution_bundle(
-    value: Mapping[str, object], repository: Path | None = None
-) -> dict[str, object]:
-    """Validate a closed execution-ready plan bundle and optional repository replay."""
-
-    required = {
-        "schemaVersion", "runSpec", "wavePlan", "hostCapabilities",
-        "planningTimestamp", "repositoryIdentity",
-    }
-    if not isinstance(value, Mapping) or set(value) != required:
-        raise StateError("execution bundle must match the closed compass-builder.plan-bundle.v1 field set")
-    bundle = copy.deepcopy(dict(value))
-    if bundle["schemaVersion"] != "compass-builder.plan-bundle.v1":
-        raise StateError("execution bundle has an unsupported schemaVersion")
-    if not all(isinstance(bundle[field], Mapping) for field in ("runSpec", "wavePlan", "hostCapabilities")):
-        raise StateError("execution bundle contracts must be JSON objects")
-    if not isinstance(bundle["planningTimestamp"], str):
-        raise StateError("execution bundle planningTimestamp must be text")
-    try:
-        spec, plan, _ = validate_run_bindings(
-            bundle["runSpec"], bundle["wavePlan"],
-            host_capabilities=bundle["hostCapabilities"],
-            planning_timestamp=bundle["planningTimestamp"],
-        )
-    except ValueError as exc:
-        raise StateError(f"execution bundle bindings are invalid: {exc}") from exc
-    identity_value = bundle["repositoryIdentity"]
-    identity_fields = {"repositoryRoot", "commonGitDir", "gitDir"}
-    if not isinstance(identity_value, dict) or set(identity_value) != identity_fields:
-        raise StateError("execution bundle repositoryIdentity has an unsupported field set")
-    for field in sorted(identity_fields):
-        text = identity_value[field]
-        if (
-            not isinstance(text, str) or not text or text != text.strip()
-            or len(text) > 1024
-            or any(ord(character) < 32 or ord(character) == 127 for character in text)
-        ):
-            raise StateError(
-                f"execution bundle repositoryIdentity.{field} must be bounded clean text"
-            )
-    if repository is not None:
-        actual = resolve_repository(repository)
-        expected = {
-            "repositoryRoot": str(actual.root), "commonGitDir": str(actual.common_git_dir),
-            "gitDir": str(actual.git_dir),
-        }
-        if identity_value != expected:
-            raise StateError("execution bundle repository identity does not match this checkout")
-    bundle["runSpec"] = spec
-    bundle["wavePlan"] = plan
-    canonical_json(bundle)
-    return bundle
-
-
-def load_run_bundle(repository: Path, run_id: str) -> dict[str, object]:
-    """Load the controller-persisted public execution bundle for resume."""
-
-    validate_run_id(run_id, "runId")
-    identity = resolve_repository(repository)
-    root = identity.root / ".compass-builder" / "runs" / run_id
-    _require_contained(root, identity.root / ".compass-builder", label="resume run root")
-    path = root / "plan-bundle.json"
-    try:
-        names = {item.name for item in root.iterdir()}
-    except OSError as exc:
-        raise StateError(f"durable run artifact set is unavailable: {exc}") from exc
-    if names != {"transaction.json", "controller.json", "state.json", "plan-bundle.json"}:
-        raise StateError("durable run artifact set is partial or contains unknown files")
-    try:
-        value = json.loads(
-            _read_file_no_follow(path, root, label="durable execution bundle").decode(
-                "utf-8-sig"
-            )
-        )
-    except (OSError, UnicodeError, ValueError) as exc:
-        raise StateError(f"durable execution bundle is unavailable or malformed: {exc}") from exc
-    if not isinstance(value, dict):
-        raise StateError("durable execution bundle must be a JSON object")
-    return validate_execution_bundle(value, identity.root)
-
-
-def load_run_inputs(repository: Path, run_id: str) -> tuple[dict[str, object], dict[str, object]]:
-    bundle = load_run_bundle(repository, run_id)
-    return bundle["runSpec"], bundle["wavePlan"]
+from .execution_bundle import (
+    build_execution_bundle, load_run_bundle, load_run_inputs,
+    validate_execution_bundle,
+)
 
 
 __all__ = [

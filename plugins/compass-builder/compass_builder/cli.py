@@ -12,13 +12,17 @@ from pathlib import Path
 
 from .doctor import DoctorError, run_doctor
 from .handoff import HandoffError, resolve_plugin_compass
-from .models import canonical_json, run_binding_digest
+from .cleanup import CleanupError, cleanup_run
+from .git_environment import GitEnvironmentError, load_git_environment
+from .models import canonical_json, run_binding_digest, validate_worker_receipt
+from ._validation import run_id as validate_run_id
 from .lease import acquire_lease, release_lease
 from .planner import PlanningError, build_plan
 from .state import (
     StateError, StateStore, build_execution_bundle, load_run_bundle,
     validate_execution_bundle,
 )
+from .verifier import VerificationError, load_controller_launch_record, verify_worker
 
 
 def _json(path: Path) -> dict[str, object]:
@@ -71,12 +75,48 @@ def build_parser() -> argparse.ArgumentParser:
             "--dry-run", action="store_true", required=True,
             help="validate and project controller work without starting a worker",
         )
+    verify = commands.add_parser("verify-worker")
+    verify.add_argument("--repo", type=Path, required=True)
+    verify.add_argument("--plan", type=Path, required=True)
+    verify.add_argument("--receipt", type=Path, required=True)
+    cleanup = commands.add_parser("cleanup")
+    cleanup.add_argument("--repo", type=Path, required=True)
+    cleanup.add_argument("--run-id", required=True)
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
+        if args.command == "verify-worker":
+            raw_bundle = validate_execution_bundle(_json(args.plan))
+            receipt = validate_worker_receipt(_json(args.receipt))
+            story_id = str(receipt["storyId"])
+            run_id = str(raw_bundle["runSpec"]["runId"])
+            run_root = Path(args.repo).resolve(strict=True) / ".compass-builder" / "runs" / run_id
+            environment = load_git_environment(run_root / "git-environment")
+            bundle = validate_execution_bundle(raw_bundle, args.repo, environment)
+            store = StateStore(args.repo, bundle["runSpec"], bundle["wavePlan"], environment)
+            launch = load_controller_launch_record(store, story_id)
+            verified = verify_worker(
+                args.repo, bundle["runSpec"], bundle["wavePlan"], receipt,
+                launch, environment,
+            )
+            sys.stdout.write(canonical_json(verified.wire()).decode("utf-8") + "\n")
+            return 0
+        if args.command == "cleanup":
+            validate_run_id(args.run_id, "runId")
+            run_root = Path(args.repo).resolve(strict=True) / ".compass-builder" / "runs" / args.run_id
+            environment = load_git_environment(run_root / "git-environment")
+            bundle = load_run_bundle(args.repo, args.run_id, environment)
+            store = StateStore(args.repo, bundle["runSpec"], bundle["wavePlan"], environment)
+            removed = cleanup_run(store, environment)
+            output = {
+                "schemaVersion": "compass-builder.cleanup-result.v1",
+                "runId": args.run_id, "removedWorktrees": [str(path) for path in removed],
+            }
+            sys.stdout.write(canonical_json(output).decode("utf-8") + "\n")
+            return 0
         if args.command in {"run", "resume"}:
             if args.command == "run":
                 bundle = validate_execution_bundle(_json(args.plan), args.repo)
@@ -133,7 +173,8 @@ def main(argv: list[str] | None = None) -> int:
                 str(report["planningTimestamp"]), args.repo,
             )
     except (
-        DoctorError, HandoffError, PlanningError, StateError, ValueError, OSError,
+        CleanupError, DoctorError, GitEnvironmentError, HandoffError, PlanningError,
+        StateError, VerificationError, ValueError, OSError,
         subprocess.TimeoutExpired, UnicodeError,
     ) as exc:
         print(f"compass-builder: {exc}", file=sys.stderr)

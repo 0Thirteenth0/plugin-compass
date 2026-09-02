@@ -30,6 +30,7 @@ class GitEnvironment:
 
 _IDENTITY_NAME = "Compass Builder Worker"
 _IDENTITY_EMAIL = "compass-builder@localhost.invalid"
+_FIXED_GIT_DATE = "2000-01-01T00:00:00Z"
 
 
 def _fixed_config(template_directory: Path, hooks_directory: Path) -> tuple[tuple[str, str], ...]:
@@ -41,6 +42,7 @@ def _fixed_config(template_directory: Path, hooks_directory: Path) -> tuple[tupl
         ("core.hooksPath", str(hooks_directory)),
         ("init.templateDir", str(template_directory)),
         ("core.autocrlf", "false"),
+        ("core.filemode", "false"),
         ("core.eol", "lf"),
         ("core.safecrlf", "true"),
     )
@@ -61,6 +63,13 @@ def _controlled_environment(
         "GIT_ATTR_NOSYSTEM": "1",
         "GIT_TEMPLATE_DIR": str(template_directory),
         "GIT_TERMINAL_PROMPT": "0",
+        "GIT_NO_REPLACE_OBJECTS": "1",
+        "GIT_AUTHOR_NAME": _IDENTITY_NAME,
+        "GIT_AUTHOR_EMAIL": _IDENTITY_EMAIL,
+        "GIT_AUTHOR_DATE": _FIXED_GIT_DATE,
+        "GIT_COMMITTER_NAME": _IDENTITY_NAME,
+        "GIT_COMMITTER_EMAIL": _IDENTITY_EMAIL,
+        "GIT_COMMITTER_DATE": _FIXED_GIT_DATE,
         "GIT_CONFIG_COUNT": str(len(config)),
     }
     for index, (key, value) in enumerate(config):
@@ -279,7 +288,44 @@ def prepare_git_environment(
     )
 
 
+def load_git_environment(
+    controller_root: Path,
+    *,
+    base_environment: Mapping[str, str] | None = None,
+) -> GitEnvironment:
+    """Load an already-prepared isolation bundle without creating or repairing it."""
+
+    raw_root = Path(controller_root)
+    if not raw_root.is_absolute():
+        raise GitEnvironmentError("controller-owned Git root must be absolute")
+    try:
+        root = raw_root.resolve(strict=True)
+    except OSError as exc:
+        raise GitEnvironmentError("controller-owned Git root is missing") from exc
+    global_config = root / "empty-global.gitconfig"
+    global_attributes = root / "empty-global.gitattributes"
+    template_directory = root / "empty-template"
+    hooks_directory = root / "empty-hooks"
+    source = os.environ if base_environment is None else base_environment
+    environment: dict[str, str] = {}
+    for key, value in source.items():
+        if not isinstance(key, str) or not isinstance(value, str):
+            raise GitEnvironmentError("process environment keys and values must be text")
+        if not key.upper().startswith("GIT_"):
+            environment[key] = value
+    controlled = _controlled_environment(
+        global_config, global_attributes, template_directory, hooks_directory
+    )
+    environment.update(controlled)
+    bundle = GitEnvironment(
+        environment=MappingProxyType(environment), digest=_canonical_digest(controlled),
+        root=root, global_config=global_config, global_attributes=global_attributes,
+        template_directory=template_directory, hooks_directory=hooks_directory,
+    )
+    return validate_git_environment(bundle)
+
+
 __all__ = [
-    "GitEnvironment", "GitEnvironmentError", "prepare_git_environment",
+    "GitEnvironment", "GitEnvironmentError", "load_git_environment", "prepare_git_environment",
     "validate_git_environment",
 ]

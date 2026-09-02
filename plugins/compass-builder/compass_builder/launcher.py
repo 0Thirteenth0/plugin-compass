@@ -72,12 +72,14 @@ EXPECTED_WORKER_SCHEMA_DIGEST = (
 )
 _DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 _MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,159}$")
+_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 _RECORD_FIELDS = {
     "schemaVersion", "runId", "storyId", "branch", "attempt", "worktree",
     "exactModel", "effort", "initialRecommendedEffort", "reasoningConfigKey",
     "reasoningConfigEvidenceDigest", "handoffDigest", "hostEvidenceDigest",
     "workerOutputSchemaPath", "workerOutputSchemaDigest", "promptDigest",
-    "gitEnvironmentDigest", "argv", "previousLaunchDigest", "retryEvidenceDigest",
+    "gitEnvironmentDigest", "workerStartSha", "argv", "previousLaunchDigest",
+    "retryEvidenceDigest",
 }
 
 
@@ -159,6 +161,8 @@ def validate_launch_record(value: Mapping[str, object]) -> dict[str, object]:
         raise LaunchError("effort values must be supported Codex reasoning efforts")
     if type(record["attempt"]) is not int or record["attempt"] not in (1, 2):
         raise LaunchError("attempt must be 1 or 2")
+    if not isinstance(record["workerStartSha"], str) or not _SHA_RE.fullmatch(record["workerStartSha"]):
+        raise LaunchError("workerStartSha must be one lowercase commit identity")
     worktree = _require_absolute_path(record["worktree"], "worktree", existing=False)
     schema_path = _require_absolute_path(
         record["workerOutputSchemaPath"], "workerOutputSchemaPath", existing=False
@@ -356,6 +360,7 @@ def _prepare(
     reasoning_config_key: str,
     reasoning_config_evidence_digest: str,
     git_environment: GitEnvironment,
+    worker_start_sha: str,
     effort: str,
     attempt: int,
     previous_launch_digest: str | None,
@@ -382,6 +387,8 @@ def _prepare(
     if len(planned) != 1:
         raise LaunchError(f"story {story_id!r} is not uniquely planner-bound")
     planned_story = planned[0]
+    if not isinstance(worker_start_sha, str) or not _SHA_RE.fullmatch(worker_start_sha):
+        raise LaunchError("worker start SHA must be one lowercase commit identity")
     if effort not in host["supportedEfforts"]:
         raise LaunchError("launch effort is not proven by native host capabilities")
     exact_model = spec["exactModel"]
@@ -417,6 +424,7 @@ def _prepare(
         "workerOutputSchemaDigest": schema_digest,
         "promptDigest": _digest_bytes(prompt.encode("utf-8")),
         "gitEnvironmentDigest": git_environment.digest,
+        "workerStartSha": worker_start_sha,
         "argv": [],
         "previousLaunchDigest": previous_launch_digest,
         "retryEvidenceDigest": retry_evidence_digest,
@@ -443,6 +451,7 @@ def prepare_launch(
     reasoning_config_key: str,
     reasoning_config_evidence_digest: str,
     git_environment: GitEnvironment,
+    worker_start_sha: str,
 ) -> PreparedLaunch:
     """Prepare the first exact-model launch from planner-bound effort advice."""
 
@@ -462,6 +471,7 @@ def prepare_launch(
         reasoning_config_key=reasoning_config_key,
         reasoning_config_evidence_digest=reasoning_config_evidence_digest,
         git_environment=git_environment,
+        worker_start_sha=worker_start_sha,
         effort=str(plan_story.get("recommendedEffort")), attempt=1,
         previous_launch_digest=None, retry_evidence_digest=None,
     )
@@ -499,6 +509,7 @@ def prepare_retry_launch(
         reasoning_config_key=reasoning_config_key,
         reasoning_config_evidence_digest=reasoning_config_evidence_digest,
         git_environment=git_environment,
+        worker_start_sha=str(previous["workerStartSha"]),
         effort=disposition.retry_effort, attempt=2,
         previous_launch_digest=_digest_json(previous),
         retry_evidence_digest=failure_evidence.evidence_digest,
@@ -511,6 +522,7 @@ def prepare_retry_launch(
         "reasoningConfigEvidenceDigest", "handoffDigest", "hostEvidenceDigest",
         "workerOutputSchemaPath", "workerOutputSchemaDigest", "promptDigest",
         "gitEnvironmentDigest",
+        "workerStartSha",
     )
     drifted = [field for field in immutable if prepared.record[field] != previous[field]]
     if drifted:

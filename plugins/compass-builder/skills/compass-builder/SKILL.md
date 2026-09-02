@@ -8,7 +8,11 @@ license: MIT
 
 Compass Builder coordinates dependency-ready stories while Plugin Compass passively advises the lowest adequate supported reasoning effort. The controller alone owns durable state, registered worktrees, the integration branch, leases, and recovery evidence.
 
-Task 5 supports validated dry-run `run` and `resume` composition only. Do not start a live worker, merge, clean up, or claim benchmark results through this version.
+Task 6 keeps `run` and `resume` as validated dry-run composition; it does not dispatch live workers. It adds controller-owned receipt verification, lease-serialized integration, independent post-merge validation, and fail-closed cleanup eligibility. Do not claim benchmark results through this version.
+
+`verify-worker --repo --plan --receipt` treats the receipt as a claim, reloads controller-owned launch and state evidence, derives scope and commit shape from isolated raw Git objects, and reruns every required worker check. Integration must acquire the branch lease, freshly repeat that verification, merge only the resulting immutable SHA, prove the merge's ordered raw parents, and durably record validation or blocker evidence.
+
+`cleanup --repo --run-id` is destructive. Invoke it only with explicit user authorization. The controller derives candidates exclusively from its durable verified-merge ledger, acquires the integration lease, checks canonical containment, Git worktree membership, branch/head identity, and cleanliness, then records each removal durably. Unsafe, dirty, raced, foreign, or unregistered worktrees are retained.
 
 ## Route
 

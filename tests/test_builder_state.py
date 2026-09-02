@@ -21,6 +21,10 @@ if str(BUILDER) not in sys.path:
     sys.path.insert(0, str(BUILDER))
 
 from compass_builder.cli import main  # noqa: E402
+from compass_builder.durable_artifacts import ArtifactJournal  # noqa: E402
+from compass_builder.secure_files import (  # noqa: E402
+    SecureFileError, read_no_follow, write_new_no_follow,
+)
 import compass_builder.state as state_module  # noqa: E402
 from compass_builder.models import canonical_json, validate_run_state_transition  # noqa: E402
 from compass_builder.state import (  # noqa: E402
@@ -348,6 +352,21 @@ class BuilderStateTests(unittest.TestCase):
         with self.assertRaisesRegex(StateError, "commit object"):
             self.store._validate_state(bad)
 
+    def test_graft_cannot_make_invalid_recorded_ancestry_pass(self):
+        git(self.repo, "checkout", "--orphan", "graft-rogue")
+        git(self.repo, "commit", "--allow-empty", "-m", "unrelated graft target")
+        rogue = git(self.repo, "rev-parse", "HEAD")
+        git(self.repo, "checkout", "main")
+        git(self.repo, "reset", "--hard", self.initial)
+        bad = advance_first_wave(self.store, self.initial, rogue)[-2]
+        with self.assertRaisesRegex(StateError, "ancestry"):
+            self.store._validate_state(bad)
+        grafts = self.store.repository.common_git_dir / "info" / "grafts"
+        grafts.parent.mkdir(parents=True, exist_ok=True)
+        grafts.write_text(f"{rogue} {self.initial}\n", encoding="ascii")
+        with self.assertRaisesRegex(StateError, "graft metadata"):
+            self.store._validate_state(bad)
+
     def test_mutations_always_observe_git_head_and_validate_root_before_first_write(self):
         state = self.store.initial_state()
         git(self.repo, "reset", "--hard", self.second)
@@ -573,7 +592,7 @@ class BuilderStateTests(unittest.TestCase):
         alias.mkdir()
         nested.mkdir()
         with patch(
-            "compass_builder.state._is_reparse",
+            "compass_builder.secure_files.is_reparse",
             side_effect=lambda path: Path(path) == alias,
         ):
             with self.assertRaisesRegex(StateError, "ancestor|reparse"):
@@ -595,13 +614,121 @@ class BuilderStateTests(unittest.TestCase):
             blockerHistory=[blocker],
         )
         with patch(
-            "compass_builder.state._is_reparse",
+            "compass_builder.secure_files.is_reparse",
             side_effect=lambda path: Path(path) == self.store.path,
         ):
             with self.assertRaisesRegex(StateError, "reparse"):
                 self.store.load()
             with self.assertRaisesRegex(StateError, "reparse"):
                 self.store.write_transition(previous, blocked)
+
+    def test_auxiliary_journal_rejects_unknown_oversized_and_collection_floods(self):
+        self.store.create(self.store.initial_state())
+        journal = ArtifactJournal(self.store.run_root, self.store.control_root)
+        with self.assertRaisesRegex(ValueError, "byte bound"):
+            journal.record("failure-records", {"payload": "x" * 2_000_000})
+        journal.record("failure-records", {"record": 1})
+        directory = self.store.run_root / "failure-records"
+        (directory / "unknown.tmp").write_text("hostile", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "unknown entry"):
+            journal.read("failure-records")
+        (directory / "unknown.tmp").unlink()
+        with patch("compass_builder.durable_artifacts.MAX_RECORDS", 1), self.assertRaisesRegex(
+            ValueError, "collection"
+        ):
+            journal.record("failure-records", {"record": 2})
+        with patch("compass_builder.durable_artifacts.MAX_AGGREGATE_BYTES", 1), self.assertRaisesRegex(
+            ValueError, "collection"
+        ):
+            journal.read("failure-records")
+
+        receipt = next(directory.glob("*.json"))
+        real_stat = state_module.os.stat
+
+        def swapped_stat(path, *args, **kwargs):
+            result = real_stat(path, *args, **kwargs)
+            if Path(path) == receipt and kwargs.get("follow_symlinks") is False:
+                values = list(result)
+                values[1] += 1
+                return type(result)(values)
+            return result
+
+        with patch("compass_builder.secure_files.os.stat", side_effect=swapped_stat), self.assertRaisesRegex(
+            ValueError, "changed while"
+        ):
+            journal.read("failure-records")
+
+    def test_auxiliary_journal_rejects_filename_digest_mismatch(self):
+        self.store.create(self.store.initial_state())
+        journal = ArtifactJournal(self.store.run_root, self.store.control_root)
+        receipt = journal.record("failure-records", {"record": "authentic"})
+        mismatched = receipt.with_name("0" * 64 + ".json")
+        receipt.rename(mismatched)
+
+        with self.assertRaisesRegex(ValueError, "digest"):
+            journal.read("failure-records")
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows ancestor swap probe")
+    def test_secure_file_guard_blocks_read_and_write_ancestor_junction_swap(self):
+        controller = self.base / "controller"
+        guarded_parent = controller / "runs" / "run-1" / "failure-records"
+        guarded_parent.mkdir(parents=True)
+        escaped_parent = self.base / "escaped"
+        escaped_parent.mkdir()
+        read_target = guarded_parent / "read.json"
+        read_target.write_bytes(b"controller")
+        (escaped_parent / read_target.name).write_bytes(b"escaped")
+        write_target = guarded_parent / "write.json"
+        original_open = state_module.os.open
+
+        def exercise(operation):
+            backup = guarded_parent.with_name(guarded_parent.name + "-held")
+
+            def swap_inside_open(path, *args, **kwargs):
+                guarded_parent.rename(backup)
+                result = subprocess.run(
+                    ["cmd", "/c", "mklink", "/J", str(guarded_parent), str(escaped_parent)],
+                    check=False, capture_output=True,
+                )
+                if result.returncode:
+                    raise OSError("injected junction creation failed")
+                return original_open(path, *args, **kwargs)
+
+            try:
+                with patch("compass_builder.secure_files.os.open", side_effect=swap_inside_open):
+                    with self.assertRaises(SecureFileError):
+                        operation()
+            finally:
+                if guarded_parent.exists() and backup.exists():
+                    guarded_parent.rmdir()
+                if backup.exists():
+                    backup.rename(guarded_parent)
+
+        exercise(lambda: read_no_follow(
+            read_target, controller, label="ancestor-swap read", max_bytes=1024,
+        ))
+        exercise(lambda: write_new_no_follow(
+            write_target, b"controller", controller, label="ancestor-swap write",
+        ))
+        self.assertFalse((escaped_parent / write_target.name).exists())
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows journal junction probe")
+    def test_auxiliary_journal_rejects_run_root_junction_escape(self):
+        self.store.create(self.store.initial_state())
+        escaped = self.base / "escaped-run"
+        self.store.run_root.rename(escaped)
+        result = subprocess.run(
+            ["cmd", "/c", "mklink", "/J", str(self.store.run_root), str(escaped)],
+            check=False, capture_output=True,
+        )
+        if result.returncode:
+            escaped.rename(self.store.run_root)
+            self.skipTest("junction creation is unavailable on this host")
+        try:
+            with self.assertRaisesRegex(ValueError, "reparse|symlink"):
+                ArtifactJournal(self.store.run_root, self.store.control_root)
+        finally:
+            self.store.run_root.rmdir()
 
 
 if __name__ == "__main__":

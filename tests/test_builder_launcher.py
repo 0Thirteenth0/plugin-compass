@@ -69,6 +69,7 @@ class LauncherTests(unittest.TestCase):
             reasoning_config_key=REASONING_CONFIG_KEY,
             reasoning_config_evidence_digest=self.reasoning_digest,
             git_environment=self.git_environment,
+            worker_start_sha=self.spec["baseSha"],
         )
 
     def test_prepares_exact_no_shell_argv_and_bounded_stdin_without_starting_worker(self):
@@ -92,6 +93,7 @@ class LauncherTests(unittest.TestCase):
         self.assertIn("Do not launch child workers or agents", launch.stdin)
         self.assertNotIn(launch.stdin, launch.argv)
         self.assertEqual("low", launch.record["effort"])
+        self.assertEqual(self.spec["baseSha"], launch.record["workerStartSha"])
         self.assertEqual(self.plan["stories"][0]["handoffDigest"], launch.record["handoffDigest"])
         self.assertEqual(self.plan["hostEvidenceDigest"], launch.record["hostEvidenceDigest"])
         self.assertEqual(dict(launch.record), validate_launch_record(launch.record))
@@ -136,6 +138,7 @@ class LauncherTests(unittest.TestCase):
                 reasoning_config_key=REASONING_CONFIG_KEY,
                 reasoning_config_evidence_digest=self.reasoning_digest,
                 git_environment=altered,
+                worker_start_sha=self.spec["baseSha"],
             )
 
     def test_git_environment_fails_closed_on_nonempty_registered_surfaces(self):
@@ -176,6 +179,7 @@ class LauncherTests(unittest.TestCase):
                     reasoning_config_key=key,
                     reasoning_config_evidence_digest=self.reasoning_digest,
                     git_environment=self.git_environment,
+                    worker_start_sha=self.spec["baseSha"],
                 )
         tampered = dict(self.first_launch().record)
         tampered["argv"] = list(tampered["argv"])
@@ -191,6 +195,7 @@ class LauncherTests(unittest.TestCase):
                 reasoning_config_key=REASONING_CONFIG_KEY,
                 reasoning_config_evidence_digest=DIGEST,
                 git_environment=self.git_environment,
+                worker_start_sha=self.spec["baseSha"],
             )
 
     def test_worker_schema_is_pinned_to_bundled_canonical_closed_contract(self):
@@ -209,6 +214,7 @@ class LauncherTests(unittest.TestCase):
                 reasoning_config_key=REASONING_CONFIG_KEY,
                 reasoning_config_evidence_digest=self.reasoning_digest,
                 git_environment=self.git_environment,
+                worker_start_sha=self.spec["baseSha"],
             )
         record = dict(self.first_launch().record)
         record["workerOutputSchemaPath"] = str(arbitrary)

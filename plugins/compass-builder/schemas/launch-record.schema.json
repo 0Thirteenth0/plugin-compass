@@ -10,7 +10,7 @@
     "exactModel", "effort", "initialRecommendedEffort", "reasoningConfigKey",
     "reasoningConfigEvidenceDigest", "handoffDigest", "hostEvidenceDigest",
     "workerOutputSchemaPath", "workerOutputSchemaDigest", "promptDigest",
-    "gitEnvironmentDigest", "argv", "previousLaunchDigest", "retryEvidenceDigest"
+    "gitEnvironmentDigest", "workerStartSha", "argv", "previousLaunchDigest", "retryEvidenceDigest"
   ],
   "properties": {
     "schemaVersion": {"const": "compass-builder.launch-record.v1"},
@@ -30,6 +30,7 @@
     "workerOutputSchemaDigest": {"const": "sha256:92e2f2e58ccd8790247722e889644ce02845ca410f01c7bc56cc41d4fe751080"},
     "promptDigest": {"$ref": "#/$defs/digest"},
     "gitEnvironmentDigest": {"$ref": "#/$defs/digest"},
+    "workerStartSha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
     "argv": {
       "type": "array", "minItems": 18, "maxItems": 18,
       "items": {"type": "string", "minLength": 1, "maxLength": 2048}
