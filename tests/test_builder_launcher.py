@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 import sys
 import tempfile
 import unittest
@@ -9,7 +10,6 @@ from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
-from jsonschema import Draft202012Validator, ValidationError
 from tests.helpers.builder_models import schema_allows_string
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -22,9 +22,9 @@ from compass_builder.git_environment import (  # noqa: E402
     GitEnvironmentError, prepare_git_environment, validate_git_environment,
 )
 from compass_builder.launcher import (  # noqa: E402
-    FailureEvidence, LaunchError, REASONING_CONFIG_KEY, classify_failure,
-    prepare_launch, prepare_retry_launch, validate_launch_record,
-    validate_worker_output,
+    EXPECTED_WORKER_SCHEMA_DIGEST, FailureEvidence, LaunchError,
+    REASONING_CONFIG_KEY, classify_failure, prepare_launch,
+    prepare_retry_launch, validate_launch_record, validate_worker_output,
 )
 
 
@@ -274,14 +274,124 @@ class LauncherTests(unittest.TestCase):
         schema = json.loads(
             (SCHEMAS / "launch-record.schema.json").read_text(encoding="utf-8")
         )
-        validator = Draft202012Validator(schema)
         first = dict(self.first_launch().record)
-        validator.validate(first)
+        properties = schema["properties"]
+        self.assertEqual("object", schema["type"])
+        self.assertFalse(schema["additionalProperties"])
+        self.assertEqual(set(first), set(schema["required"]))
+        self.assertEqual(set(first), set(properties))
+        self.assertEqual(
+            {"const": "compass-builder.launch-record.v1"},
+            properties["schemaVersion"],
+        )
+        self.assertEqual(first["schemaVersion"], properties["schemaVersion"]["const"])
+        self.assertEqual({"const": REASONING_CONFIG_KEY}, properties["reasoningConfigKey"])
+        self.assertEqual(REASONING_CONFIG_KEY, first["reasoningConfigKey"])
+        self.assertEqual(
+            {"const": EXPECTED_WORKER_SCHEMA_DIGEST},
+            properties["workerOutputSchemaDigest"],
+        )
+        self.assertEqual(EXPECTED_WORKER_SCHEMA_DIGEST, first["workerOutputSchemaDigest"])
+
+        def schema_nodes(value):
+            if isinstance(value, dict):
+                yield value
+                for child in value.values():
+                    yield from schema_nodes(child)
+            elif isinstance(value, list):
+                for child in value:
+                    yield from schema_nodes(child)
+
+        local_references = []
+        for node in schema_nodes(schema):
+            if "pattern" in node:
+                self.assertIsNotNone(re.compile(node["pattern"]))
+            reference = node.get("$ref")
+            if isinstance(reference, str) and reference.startswith("#/"):
+                local_references.append(reference)
+                resolved = schema
+                for part in reference[2:].split("/"):
+                    self.assertIn(part, resolved)
+                    resolved = resolved[part]
+                self.assertIsInstance(resolved, dict)
+        self.assertTrue(local_references)
+
+        argv = properties["argv"]
+        self.assertEqual("array", argv["type"])
+        self.assertEqual(18, argv["minItems"])
+        self.assertEqual(18, argv["maxItems"])
+        self.assertEqual(
+            {"type": "string", "minLength": 1, "maxLength": 2048},
+            argv["items"],
+        )
+        self.assertEqual(18, len(first["argv"]))
+
+        attempts = {
+            branch["properties"]["attempt"]["const"]: branch
+            for branch in schema["oneOf"]
+        }
+        self.assertEqual(2, len(schema["oneOf"]))
+        self.assertEqual({1, 2}, set(attempts))
+        self.assertEqual(
+            {"attempt", "previousLaunchDigest", "retryEvidenceDigest"},
+            set(attempts[1]["properties"]),
+        )
+        self.assertEqual({"const": 1}, attempts[1]["properties"]["attempt"])
+        self.assertEqual({"type": "null"}, attempts[1]["properties"]["previousLaunchDigest"])
+        self.assertEqual({"type": "null"}, attempts[1]["properties"]["retryEvidenceDigest"])
+        self.assertEqual(
+            {"attempt", "previousLaunchDigest", "retryEvidenceDigest"},
+            set(attempts[2]["properties"]),
+        )
+        self.assertEqual({"const": 2}, attempts[2]["properties"]["attempt"])
+        self.assertEqual(
+            {"$ref": "#/$defs/digest"},
+            attempts[2]["properties"]["previousLaunchDigest"],
+        )
+        self.assertEqual(
+            {"$ref": "#/$defs/digest"},
+            attempts[2]["properties"]["retryEvidenceDigest"],
+        )
+        efforts = ("low", "medium", "high", "xhigh", "max", "ultra")
+        first_rows = attempts[1]["allOf"][0]["oneOf"]
+        self.assertEqual(len(efforts), len(first_rows))
+        self.assertTrue(all(
+            set(row) == {"properties"}
+            and set(row["properties"]) == {"initialRecommendedEffort", "effort"}
+            for row in first_rows
+        ))
+        first_order = {
+            row["properties"]["initialRecommendedEffort"]["const"]:
+                row["properties"]["effort"]
+            for row in first_rows
+        }
+        self.assertEqual({effort: {"const": effort} for effort in efforts}, first_order)
+
+        retry_rows = attempts[2]["allOf"][0]["oneOf"]
+        self.assertEqual(len(efforts) - 1, len(retry_rows))
+        self.assertTrue(all(
+            set(row) == {"properties"}
+            and set(row["properties"]) == {"initialRecommendedEffort", "effort"}
+            for row in retry_rows
+        ))
+        retry_order = {
+            row["properties"]["initialRecommendedEffort"]["const"]:
+                row["properties"]["effort"]
+            for row in retry_rows
+        }
+        expected_retry_order = {
+            effort: {"enum": list(efforts[index + 1:])}
+            for index, effort in enumerate(efforts[:-2])
+        }
+        expected_retry_order["max"] = {"const": "ultra"}
+        self.assertEqual(expected_retry_order, retry_order)
+
+        self.assertEqual(first, validate_launch_record(first))
 
         first_drift = copy.deepcopy(first)
         first_drift["effort"] = "medium"
-        with self.assertRaises(ValidationError):
-            validator.validate(first_drift)
+        with self.assertRaisesRegex(LaunchError, "first attempt"):
+            validate_launch_record(first_drift)
 
         retry = copy.deepcopy(first)
         retry.update({
@@ -291,22 +401,22 @@ class LauncherTests(unittest.TestCase):
             "retryEvidenceDigest": DIGEST,
         })
         retry["argv"][7] = 'model_reasoning_effort="medium"'
-        validator.validate(retry)
+        self.assertEqual(retry, validate_launch_record(retry))
 
         equal_retry = copy.deepcopy(retry)
         equal_retry["effort"] = "low"
-        with self.assertRaises(ValidationError):
-            validator.validate(equal_retry)
+        with self.assertRaisesRegex(LaunchError, "higher reasoning effort"):
+            validate_launch_record(equal_retry)
         lower_retry = copy.deepcopy(retry)
         lower_retry.update({"initialRecommendedEffort": "medium", "effort": "low"})
-        with self.assertRaises(ValidationError):
-            validator.validate(lower_retry)
+        with self.assertRaisesRegex(LaunchError, "higher reasoning effort"):
+            validate_launch_record(lower_retry)
         impossible_ultra_retry = copy.deepcopy(retry)
         impossible_ultra_retry.update({
             "initialRecommendedEffort": "ultra", "effort": "ultra"
         })
-        with self.assertRaises(ValidationError):
-            validator.validate(impossible_ultra_retry)
+        with self.assertRaisesRegex(LaunchError, "higher reasoning effort"):
+            validate_launch_record(impossible_ultra_retry)
 
     def test_only_controller_evidenced_reasoning_failure_gets_one_same_model_higher_effort_retry(self):
         first = self.first_launch()

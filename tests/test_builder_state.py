@@ -4,6 +4,7 @@ import copy
 import hashlib
 import io
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -11,9 +12,6 @@ import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
-
-from jsonschema import Draft202012Validator
-from referencing import Registry, Resource
 
 ROOT = Path(__file__).resolve().parents[1]
 BUILDER = ROOT / "plugins" / "compass-builder"
@@ -475,14 +473,76 @@ class BuilderStateTests(unittest.TestCase):
         )
         schema_path = BUILDER / "schemas" / "plan-bundle.schema.json"
         schema = json.loads(schema_path.read_text(encoding="utf-8"))
-        registry = Registry()
-        for path in (BUILDER / "schemas").glob("*.schema.json"):
-            document = json.loads(path.read_text(encoding="utf-8"))
-            if "$id" in document:
-                registry = registry.with_resource(
-                    document["$id"], Resource.from_contents(document)
+        fields = {
+            "schemaVersion", "runSpec", "wavePlan", "hostCapabilities",
+            "planningTimestamp", "repositoryIdentity",
+        }
+        self.assertEqual("object", schema["type"])
+        self.assertFalse(schema["additionalProperties"])
+        self.assertEqual(fields, set(schema["required"]))
+        self.assertEqual(fields, set(schema["properties"]))
+        self.assertEqual(fields, set(bundle))
+        self.assertEqual(
+            "compass-builder.plan-bundle.v1",
+            schema["properties"]["schemaVersion"]["const"],
+        )
+        planning_timestamp = schema["properties"]["planningTimestamp"]
+        self.assertEqual(
+            {"type": "string", "format": "date-time", "maxLength": 64},
+            planning_timestamp,
+        )
+        identity_schema = schema["properties"]["repositoryIdentity"]
+        identity_fields = {"repositoryRoot", "commonGitDir", "gitDir"}
+        self.assertEqual("object", identity_schema["type"])
+        self.assertFalse(identity_schema["additionalProperties"])
+        self.assertEqual(identity_fields, set(identity_schema["required"]))
+        self.assertEqual(identity_fields, set(identity_schema["properties"]))
+        self.assertEqual(identity_fields, set(bundle["repositoryIdentity"]))
+
+        def identity_rule_allows(rule: dict, value: str) -> bool:
+            return (
+                isinstance(value, str)
+                and rule["minLength"] <= len(value) <= rule["maxLength"]
+                and re.search(re.compile(rule["pattern"]), value) is not None
+            )
+
+        expected_identity_pattern = (
+            r"^(?!\s)(?![\s\S]*\s$)[^\u0000-\u001f\u007f]+$"
+        )
+        for field, rule in identity_schema["properties"].items():
+            with self.subTest(identity_field=field):
+                self.assertEqual("string", rule["type"])
+                self.assertEqual(1, rule["minLength"])
+                self.assertEqual(1024, rule["maxLength"])
+                self.assertEqual(expected_identity_pattern, rule["pattern"])
+                self.assertIsNotNone(re.compile(rule["pattern"]))
+                for accepted in (bundle["repositoryIdentity"][field], "x", "x" * 1024):
+                    self.assertTrue(identity_rule_allows(rule, accepted))
+                for rejected in ("", " leading", "trailing ", "bad\x00path", "x" * 1025):
+                    self.assertFalse(identity_rule_allows(rule, rejected))
+
+        references = {
+            field: definition["$ref"]
+            for field, definition in schema["properties"].items()
+            if "$ref" in definition
+        }
+        expected_references = {
+            "runSpec": "run-spec.schema.json",
+            "wavePlan": "wave-plan.schema.json",
+            "hostCapabilities": "host-capabilities.schema.json",
+        }
+        self.assertEqual(expected_references, references)
+        for field, filename in expected_references.items():
+            with self.subTest(field=field):
+                self.assertEqual({"$ref": filename}, schema["properties"][field])
+                target_path = schema_path.parent / filename
+                self.assertTrue(target_path.is_file())
+                target = json.loads(target_path.read_text(encoding="utf-8"))
+                self.assertEqual(
+                    f"https://openai.local/compass-builder/{filename}",
+                    target["$id"],
                 )
-        Draft202012Validator(schema, registry=registry).validate(bundle)
+        self.assertEqual(bundle, validate_execution_bundle(bundle, self.repo))
         bad = copy.deepcopy(bundle)
         bad["unexpected"] = True
         with self.assertRaisesRegex(StateError, "closed"):
@@ -491,6 +551,23 @@ class BuilderStateTests(unittest.TestCase):
         replay["repositoryIdentity"]["repositoryRoot"] = str(self.base / "elsewhere")
         with self.assertRaisesRegex(StateError, "does not match"):
             validate_execution_bundle(replay, self.repo)
+        for identity in (
+            {key: value for key, value in bundle["repositoryIdentity"].items() if key != "gitDir"},
+            {**bundle["repositoryIdentity"], "unexpected": "value"},
+        ):
+            bad = copy.deepcopy(bundle)
+            bad["repositoryIdentity"] = identity
+            with self.subTest(identity_fields=sorted(identity)), self.assertRaisesRegex(
+                StateError, "unsupported field set"
+            ):
+                validate_execution_bundle(bad)
+        for invalid_timestamp in (123, "not-a-timestamp", "x" * 65):
+            bad = copy.deepcopy(bundle)
+            bad["planningTimestamp"] = invalid_timestamp
+            with self.subTest(planning_timestamp=repr(invalid_timestamp)), self.assertRaisesRegex(
+                StateError, "planningTimestamp|bindings"
+            ):
+                validate_execution_bundle(bad)
         for invalid in (123, " leading", "trailing ", "x" * 1025, "bad\x00path"):
             bad = copy.deepcopy(bundle)
             bad["repositoryIdentity"]["repositoryRoot"] = invalid
