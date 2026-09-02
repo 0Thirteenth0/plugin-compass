@@ -107,3 +107,36 @@
   are green but do not substitute for that run.
 - Workstation-only Plugin Creator, Skill Creator, HOL, and installed-copy checks remain
   documented release gates for Task 9; Task 7 CI does not infer them as passed.
+
+## Post-push Windows CI feedback and corrective evidence
+
+- Initial push: commit `b960df177196a9d532de6e0a7580b65706867b6d` reached
+  `origin/main`; local/upstream divergence was `0 0` and the worktree was clean.
+- GitHub Actions run `33625923165` used the new `windows-latest` workflow. Checkout,
+  Python 3.11 setup, and contract-model validation passed. Repository discovery ran all
+  205 tests but ended with one failure and one error, so later workflow steps correctly
+  did not run.
+- Failure root: `test_fixture_inventory_resolves_relative_roots_with_spaces` inferred a
+  path-with-spaces condition from the developer checkout name `Plugin Compass`; the
+  hosted checkout is named `plugin-compass`. The test now asserts the exact fixture path
+  and adds an isolated inventory whose inventory directory and relative plugin root both
+  contain spaces.
+- Error root: the auxiliary-journal identity-swap test patched all
+  `compass_builder.secure_files.os.stat` calls. On hosted Python 3.11, reconstructing an
+  `os.stat_result` in that patch left the unrelated optional `st_file_attributes` field
+  as `None`, causing the reparse precheck to fail before the intended identity check.
+  The test now patches only `_stat_at`, the exact identity seam it is meant to falsify,
+  and returns only the changed device/inode evidence consumed there.
+- Canonical owner: both defects were host-dependent test assumptions. Production
+  adapter, secure-file, controller, and workflow code remain unchanged.
+- Fresh targeted check under `python -S`: both adapter path tests and the journal
+  identity-swap test passed, 3/3 in 1.015 seconds.
+- Fresh affected-module check under `python -S`: `tests.test_adapters`,
+  `tests.test_builder_state`, and `tests.test_repo_harness` passed, 43/43 in 31.250
+  seconds.
+- Fresh direct discovery: 206/206 passed in 332.236 seconds.
+- `python -m py_compile tests/test_adapters.py tests/test_builder_state.py` and
+  `git diff --check`: exit 0.
+- Exact Python 3.11 is not installed on the workstation. The corrective hosted workflow
+  is the remaining direct same-runtime falsifier; local Python 3.14 evidence cannot be
+  represented as a substitute.

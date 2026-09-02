@@ -11,6 +11,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -23,6 +24,7 @@ from compass_builder.durable_artifacts import ArtifactJournal  # noqa: E402
 from compass_builder.secure_files import (  # noqa: E402
     SecureFileError, read_no_follow, write_new_no_follow,
 )
+import compass_builder.secure_files as secure_files_module  # noqa: E402
 import compass_builder.state as state_module  # noqa: E402
 from compass_builder.models import canonical_json, validate_run_state_transition  # noqa: E402
 from compass_builder.state import (  # noqa: E402
@@ -720,17 +722,15 @@ class BuilderStateTests(unittest.TestCase):
             journal.read("failure-records")
 
         receipt = next(directory.glob("*.json"))
-        real_stat = state_module.os.stat
+        real_stat_at = secure_files_module._stat_at
 
-        def swapped_stat(path, *args, **kwargs):
-            result = real_stat(path, *args, **kwargs)
-            if Path(path) == receipt and kwargs.get("follow_symlinks") is False:
-                values = list(result)
-                values[1] += 1
-                return type(result)(values)
+        def swapped_stat_at(path, parent_descriptor):
+            result = real_stat_at(path, parent_descriptor)
+            if Path(path) == receipt:
+                return SimpleNamespace(st_dev=result.st_dev, st_ino=result.st_ino + 1)
             return result
 
-        with patch("compass_builder.secure_files.os.stat", side_effect=swapped_stat), self.assertRaisesRegex(
+        with patch("compass_builder.secure_files._stat_at", side_effect=swapped_stat_at), self.assertRaisesRegex(
             ValueError, "changed while"
         ):
             journal.read("failure-records")

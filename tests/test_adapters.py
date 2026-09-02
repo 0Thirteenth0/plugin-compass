@@ -72,7 +72,7 @@ class CodexAdapterTests(unittest.TestCase):
                 self.assertEqual((), discover_plugins(inventory_file=snapshot))
             run.assert_not_called()
 
-    def test_fixture_inventory_resolves_relative_roots_with_spaces(self) -> None:
+    def test_fixture_inventory_resolves_relative_roots_and_metadata(self) -> None:
         plugins = enrich_plugins(
             discover_plugins(inventory_file=FIXTURES / "codex_plugins.json")
         )
@@ -80,8 +80,10 @@ class CodexAdapterTests(unittest.TestCase):
 
         self.assertEqual(7, len(plugins))
         specialist = by_id["specialist@fixture"]
-        self.assertTrue(Path(specialist.source_root or "").is_absolute())
-        self.assertIn("Plugin Compass", specialist.source_root or "")
+        self.assertEqual(
+            (FIXTURES / "plugins" / "specialist").resolve(strict=False),
+            Path(specialist.source_root or ""),
+        )
         self.assertEqual("complete", specialist.metadata_status)
         self.assertEqual(
             ["plugin-selection-specialist"],
@@ -97,6 +99,35 @@ class CodexAdapterTests(unittest.TestCase):
                 capability.name
                 for capability in by_id["claude-code-skills@fixture"].capabilities
             ],
+        )
+
+    def test_inventory_resolves_relative_root_when_inventory_and_plugin_paths_have_spaces(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            inventory_root = Path(temporary) / "inventory snapshots"
+            inventory_root.mkdir()
+            inventory = inventory_root / "codex plugins.json"
+            relative_root = Path("plugin roots") / "specialist plugin"
+            inventory.write_text(
+                json.dumps({
+                    "installed": [{
+                        "pluginId": "specialist@fixture",
+                        "name": "specialist",
+                        "marketplaceName": "fixture",
+                        "installed": True,
+                        "enabled": True,
+                        "source": {"source": "local", "path": str(relative_root)},
+                    }],
+                    "available": [],
+                }),
+                encoding="utf-8",
+            )
+
+            plugins = discover_plugins(inventory_file=inventory)
+
+        self.assertEqual(1, len(plugins))
+        self.assertEqual(
+            (inventory_root / relative_root).resolve(strict=False),
+            Path(plugins[0].source_root or ""),
         )
 
     def test_invalid_inventory_is_rejected(self) -> None:

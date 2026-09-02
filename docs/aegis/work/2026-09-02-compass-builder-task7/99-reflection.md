@@ -24,6 +24,9 @@ still ends in the full suite, and automation receives stable, fail-closed eviden
 - No network install, vendored schema engine, conditional skip, or weakened full-suite
   claim was used to accommodate undeclared test dependencies.
 - The old undeclared imports are removed and guarded against recurrence.
+- Host-specific checkout naming and broad `os.stat` patching assumptions exposed by the
+  first clean-Windows run are retired; both tests now own their fixtures and patch the
+  narrow seam they actually verify.
 - Mutable `actions/checkout@v4` and `actions/setup-python@v5` references were never
   retained; the workflow uses immutable verified commit references.
 - Unbounded `subprocess.run(capture_output=True)` behavior was removed before closeout;
@@ -42,7 +45,9 @@ still ends in the full suite, and automation receives stable, fail-closed eviden
 
 ## Residuals and next boundary
 
-- The GitHub-hosted Windows workflow result is pending its post-push run.
+- The first GitHub-hosted Windows run correctly failed on two host-dependent test
+  assumptions. The bounded repairs pass locally; same-runtime Python 3.11 confirmation
+  is pending the corrective post-push run.
 - Package/security/install evidence and any live benchmark remain Task 9 concerns.
 - Task 8 may add the synthetic comparator and paired-benchmark runner, but it must begin
   as a new bounded slice and cannot raise the two-builder cap without later authorized
