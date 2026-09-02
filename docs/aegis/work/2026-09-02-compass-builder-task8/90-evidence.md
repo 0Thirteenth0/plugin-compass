@@ -101,8 +101,16 @@
   falsifier rather than a Task 8 claim.
 - Live resume remains deliberately dry-run-only. Package/security/install validation,
   HOL scanning, and any concurrency-cap change remain Task 9 concerns.
-- Final repository state before record-only closeout: branch `main`, HEAD
-  `1b24ef9fe8af55f31491cb64a6ea44de8d9da3f9`, upstream divergence `0 0`, and only the
-  authorized Task 8 paths modified or untracked.
-- No task worktree was created. The Task 8 delta is intentionally uncommitted and
-  unpushed because this slice did not infer separate Git authorization.
+- The user separately authorized Task 8 Git closeout. Implementation commit
+  `97335305dbf10c7c49201b813bc42a339a409bc8` (`feat: add executable builder benchmark
+  workflow`) was pushed to `origin/main`; local and remote readback matched with
+  divergence `0 0`.
+- GitHub Actions `Validate` run `33671040874` completed successfully in 11m46s on
+  Windows Python 3.11. Contract models, 217-test discovery, focused comparator/runner
+  coverage, explicit Git/worktree integration, harness self-tests, and diff hygiene all
+  passed.
+- The run emitted one non-blocking platform annotation: GitHub forced the pinned
+  Node.js-20-based checkout/setup actions onto Node.js 24 because Node.js 20 is
+  deprecated. No Task 8 validation step was degraded or skipped.
+- No task branch or worktree was created. After the implementation push, the primary
+  checkout was clean and contained the only registered worktree.

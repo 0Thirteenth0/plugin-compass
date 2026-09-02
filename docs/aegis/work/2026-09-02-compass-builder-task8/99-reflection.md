@@ -52,5 +52,6 @@ route without consuming a live model or representing synthetic timing as perform
   authorize an increase.
 - Live resume, packaging, HOL/security scanning, installed-copy validation, and the live
   benchmark remain Task 9 work.
-- The Task 8 delta is uncommitted and unpushed. Separate Git authorization is required
-  before staging, committing, or pushing it.
+- The user separately authorized Git closeout. Implementation commit `9733530` was
+  pushed to synchronized `main`, and hosted Windows validation completed successfully.
+  This post-push record update preserves that observed receipt.

@@ -9,13 +9,12 @@
   seed receipts, synthetic fresh-repository route, public CLI wiring, documentation,
   harness/CI wiring, and focused tests.
 - Active slice: none.
-- Pending: if separately authorized after evidence review, scoped commit/push. Task 9
-  live benchmark/package/install work remains outside this slice.
+- Pending: Task 9 live benchmark/package/install work remains outside this slice.
 - Evidence refs: `10-intent.md`, `90-evidence.md`, Task 8 parent-plan section, and the
   Task 7 hosted Windows success receipt.
 - Blocked on: nothing after the explicit scope-expansion authorization.
-- Next: review the completed source evidence and request separate Git authorization.
-  Do not execute a live worker or begin Task 9 under this slice.
+- Next: begin Task 9 only with separate authorization. Do not execute a live worker
+  under this completed slice.
 
 ## ResumeStateHint
 
@@ -37,5 +36,5 @@ repository during this source slice.
   sequential and parallel worktree integration, public seed comparison, state/harness
   compatibility checks, compilation, and diff hygiene are green.
 - Execution Readiness alignment: aligned.
-- Decision: Task 8 source implementation is complete and verified; stop before Git
-  closeout or Task 9.
+- Decision: Task 8 implementation, Git closeout, and hosted validation are complete;
+  stop before Task 9.
