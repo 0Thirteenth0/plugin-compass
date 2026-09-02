@@ -135,6 +135,7 @@ def run_bounded(
     *,
     cwd: Path | None = None,
     environment: Mapping[str, str] | None = None,
+    stdin: bytes | None = None,
     timeout: float = PROCESS_TIMEOUT_SECONDS,
     max_output_bytes: int = MAX_CAPTURE_BYTES,
 ) -> subprocess.CompletedProcess[bytes]:
@@ -150,7 +151,8 @@ def run_bounded(
     try:
         process = subprocess.Popen(
             list(argv), cwd=cwd, env=None if environment is None else dict(environment),
-            shell=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **popen_options,
+            shell=False, stdin=subprocess.PIPE if stdin is not None else subprocess.DEVNULL,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, **popen_options,
         )
     except OSError as exc:
         raise BoundedProcessError(f"process could not start: {exc}") from exc
@@ -207,6 +209,29 @@ def run_bounded(
     for reader in readers:
         reader.start()
 
+    pipe_workers = list(readers)
+    writer_errors: list[BaseException] = []
+    if stdin is not None:
+        assert process.stdin is not None
+        def write_input() -> None:
+            try:
+                process.stdin.write(stdin)
+                process.stdin.flush()
+            except BrokenPipeError:
+                pass
+            except BaseException as exc:
+                writer_errors.append(exc)
+                _terminate_tree(process, tree)
+            finally:
+                try:
+                    process.stdin.close()
+                except OSError:
+                    pass
+
+        writer = threading.Thread(target=write_input, daemon=True)
+        writer.start()
+        pipe_workers.append(writer)
+
     timed_out = False
     termination_timed_out = False
     deadline = time.monotonic() + timeout
@@ -224,15 +249,15 @@ def run_bounded(
             tree.close()
         elif process.poll() is None:
             _terminate_tree(process, tree)
-        for reader in readers:
-            reader.join(timeout=max(0.01, deadline - time.monotonic() + 0.25))
-        if any(reader.is_alive() for reader in readers):
+        for worker in pipe_workers:
+            worker.join(timeout=max(0.01, deadline - time.monotonic() + 0.25))
+        if any(worker.is_alive() for worker in pipe_workers):
             try:
                 process.kill()
             except OSError:
                 pass
             raise BoundedProcessError(
-                "process output reader did not terminate",
+                "process pipe worker did not terminate",
                 stdout=bytes(captures["stdout"]), stderr=bytes(captures["stderr"]),
             )
 
@@ -241,6 +266,10 @@ def run_bounded(
     if reader_errors:
         raise BoundedProcessError(
             f"process output reader failed: {reader_errors[0]}", stdout=stdout, stderr=stderr
+        )
+    if writer_errors:
+        raise BoundedProcessError(
+            f"process input writer failed: {writer_errors[0]}", stdout=stdout, stderr=stderr
         )
     if termination_timed_out:
         raise BoundedProcessError(
@@ -300,11 +329,13 @@ def run_bounded_text(
     *,
     cwd: Path | None = None,
     environment: Mapping[str, str] | None = None,
+    stdin: str | None = None,
     timeout: float = PROCESS_TIMEOUT_SECONDS,
     max_output_bytes: int = MAX_CAPTURE_BYTES,
 ) -> subprocess.CompletedProcess[str]:
     return completed_text(run_bounded(
-        argv, cwd=cwd, environment=environment, timeout=timeout,
+        argv, cwd=cwd, environment=environment,
+        stdin=None if stdin is None else stdin.encode("utf-8"), timeout=timeout,
         max_output_bytes=max_output_bytes,
     ), max_output_bytes=max_output_bytes)
 

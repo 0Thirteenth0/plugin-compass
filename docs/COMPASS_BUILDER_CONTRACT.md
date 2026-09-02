@@ -60,7 +60,7 @@ python plugins/compass-builder/scripts/compass_builder.py run --repo PATH --plan
 python plugins/compass-builder/scripts/compass_builder.py resume --repo PATH --run-id ID
 python plugins/compass-builder/scripts/compass_builder.py verify-worker --repo PATH --plan PATH --receipt PATH
 python plugins/compass-builder/scripts/compass_builder.py compare --sequential PATH --parallel PATH
-python plugins/compass-builder/scripts/compass_builder.py benchmark --repo PATH --workloads PATH --pairs 5 --timeout-seconds N --output PATH
+python plugins/compass-builder/scripts/compass_builder.py benchmark --fixture PATH --sequential-plan PATH --parallel-plan PATH --pairs 5 --timeout-ms N --output PATH
 python plugins/compass-builder/scripts/compass_builder.py cleanup --repo PATH --run-id ID
 ```
 
@@ -68,12 +68,15 @@ python plugins/compass-builder/scripts/compass_builder.py cleanup --repo PATH --
 spec, wave plan, host-capability snapshot, planning timestamp, and canonical repository
 identity. Save that output unchanged and pass it to `run --plan`. `run` persists the same
 bundle with controller state so `resume --run-id` reloads the immutable inputs rather
-than accepting caller replacements. Task 5 exposes only `run --dry-run` and
-`resume --dry-run`; these commands persist validated controller transitions while never
-starting a model worker or performing Git integration.
+than accepting caller replacements. `run --dry-run` and `resume --dry-run` persist
+validated controller transitions without starting a model worker or performing Git
+integration. An authorized `run` without `--dry-run` uses the Task 8 controller to create
+registered worktrees, launch one dependency wave at the planned concurrency,
+independently verify every worker, and integrate verified commits serially. Live resume
+remains unavailable in the MVP command surface; `resume` is still dry-run-only.
 
-`doctor`, `plan`, `verify-worker`, and `compare` are read-only. Authorized `run`,
-`resume`, `benchmark`, and `cleanup` commands may create registered worktrees, launch
+`doctor`, `plan`, `verify-worker`, and `compare` are read-only. Authorized live `run`,
+`benchmark`, and `cleanup` commands may create registered worktrees, launch
 top-level Codex workers, update controller-owned run state, and perform gated serial Git
 integration. `benchmark` consumes multiple model-backed runs and therefore requires
 explicit authorization separate from source implementation.

@@ -19,8 +19,8 @@ python scripts/check_repo_harness.py --profile audit
 | --- | --- | --- | --- |
 | `docs` | Required UTF-8 documentation paths and `git diff --check` | No | Focused repository validation |
 | `contracts` | `tests.test_builder_models`, including schema/fixture shape and canonical bytes | Yes | Full repository validation |
-| `unit` | Focused deterministic Builder unit modules | Yes | Full repository validation |
-| `integration` | `tests.test_builder_verifier`, `tests.test_builder_integrator`, and `tests.test_builder_cleanup` | Yes | Full repository validation |
+| `unit` | Focused deterministic Builder unit modules, including paired comparator and runner mechanics | Yes | Full repository validation |
+| `integration` | Worker verification, serial integration, cleanup, and isolated controller worktrees | Yes | Full repository validation |
 | `audit` | Documentation, contracts, integration, harness self-tests, and `git diff --check` | Yes | Full repository validation |
 
 Every behavior profile (`contracts`, `unit`, `integration`, and `audit`) runs its focused
@@ -64,7 +64,8 @@ standard Python, and Git. It runs these gates explicitly:
 ```powershell
 python -m unittest tests.test_builder_models -v
 python -m unittest discover -s tests -v
-python -m unittest tests.test_builder_verifier tests.test_builder_integrator tests.test_builder_cleanup -v
+python -m unittest tests.test_builder_compare tests.test_builder_benchmark_runner -v
+python -m unittest tests.test_builder_verifier tests.test_builder_integrator tests.test_builder_cleanup tests.integration.test_builder_worktrees -v
 python -m unittest tests.test_repo_harness -v
 git diff --check
 ```

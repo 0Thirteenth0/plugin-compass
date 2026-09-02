@@ -216,6 +216,10 @@ class BuilderStateTests(unittest.TestCase):
         self.assertEqual("dispatching", next_wave["state"])
         self.assertEqual(1, next_wave["currentWaveIndex"])
         self.assertEqual("beta", next_wave["waves"][1]["branches"][0]["storyId"])
+        self.assertEqual("pending", next_wave["waves"][1]["branches"][0]["workerState"])
+        live_next_wave = self.store.next_wave_state(states[-1], start_workers=True)
+        self.assertEqual("running", live_next_wave["waves"][1]["branches"][0]["workerState"])
+        validate_run_state_transition(states[-1], live_next_wave)
 
         integrated = states[-2]
         blocked = copy.deepcopy(integrated)
@@ -399,7 +403,7 @@ class BuilderStateTests(unittest.TestCase):
         finally:
             junction.rmdir()
 
-    def test_cli_run_and_resume_are_dry_run_only(self):
+    def test_cli_run_and_resume_explicit_dry_run_paths_never_start_workers(self):
         spec_path = self.base / "spec.json"
         plan_path = self.base / "plan.json"
         spec_path.write_text(json.dumps(self.spec), encoding="utf-8")

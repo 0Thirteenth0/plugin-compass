@@ -11,6 +11,9 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from .doctor import DoctorError, run_doctor
+from .benchmark import ComparisonError, compare
+from .benchmark_runner import BenchmarkRunnerError, run_benchmark
+from .controller import ControllerError, execute_run
 from .handoff import HandoffError, resolve_plugin_compass
 from .cleanup import CleanupError, cleanup_run
 from .git_environment import GitEnvironmentError, load_git_environment
@@ -33,6 +36,34 @@ def _json(path: Path) -> dict[str, object]:
     if not isinstance(value, dict):
         raise ValueError(f"JSON input must be an object: {path}")
     return value
+
+
+def _json_value(path: Path) -> object:
+    try:
+        return json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"unable to load JSON from {path}") from exc
+
+
+def _receipts(path: Path) -> list[dict[str, object]]:
+    value = _json_value(path)
+    if not isinstance(value, list) or not all(isinstance(item, dict) for item in value):
+        raise ValueError(f"benchmark receipt collection must be a JSON array: {path}")
+    return value
+
+
+def _events(path: Path) -> list[dict[str, object]]:
+    resolved = path.resolve(strict=True)
+    dedicated = resolved.with_suffix(".events.jsonl")
+    candidate = dedicated if dedicated.is_file() else resolved.parent / "events.jsonl"
+    try:
+        lines = candidate.read_text(encoding="utf-8-sig").splitlines()
+        values = [json.loads(line) for line in lines if line.strip()]
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"benchmark event ledger is unavailable: {candidate}") from exc
+    if not values or not all(isinstance(item, dict) for item in values):
+        raise ValueError(f"benchmark event ledger is malformed: {candidate}")
+    return values
 
 
 def _inventory(path: Path | None) -> tuple[dict[str, object], Path | None]:
@@ -67,14 +98,15 @@ def build_parser() -> argparse.ArgumentParser:
     run = commands.add_parser("run")
     run.add_argument("--repo", type=Path, required=True)
     run.add_argument("--plan", type=Path, required=True)
+    run.add_argument("--dry-run", action="store_true")
+    run.add_argument("--timeout-ms", type=int, default=600_000)
     resume = commands.add_parser("resume")
     resume.add_argument("--repo", type=Path, required=True)
     resume.add_argument("--run-id", required=True)
-    for command in (run, resume):
-        command.add_argument(
-            "--dry-run", action="store_true", required=True,
-            help="validate and project controller work without starting a worker",
-        )
+    resume.add_argument(
+        "--dry-run", action="store_true", required=True,
+        help="validate and project controller resume without starting a worker",
+    )
     verify = commands.add_parser("verify-worker")
     verify.add_argument("--repo", type=Path, required=True)
     verify.add_argument("--plan", type=Path, required=True)
@@ -82,12 +114,37 @@ def build_parser() -> argparse.ArgumentParser:
     cleanup = commands.add_parser("cleanup")
     cleanup.add_argument("--repo", type=Path, required=True)
     cleanup.add_argument("--run-id", required=True)
+    comparison = commands.add_parser("compare")
+    comparison.add_argument("--sequential", type=Path, required=True)
+    comparison.add_argument("--parallel", type=Path, required=True)
+    benchmark = commands.add_parser("benchmark")
+    benchmark.add_argument("--fixture", type=Path, required=True)
+    benchmark.add_argument("--sequential-plan", type=Path, required=True)
+    benchmark.add_argument("--parallel-plan", type=Path, required=True)
+    benchmark.add_argument("--output", type=Path, required=True)
+    benchmark.add_argument("--pairs", type=int, default=5)
+    benchmark.add_argument("--timeout-ms", type=int, default=600_000)
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
+        if args.command == "compare":
+            result = compare(
+                _receipts(args.sequential), _receipts(args.parallel),
+                sequential_events=_events(args.sequential),
+                parallel_events=_events(args.parallel),
+            )
+            sys.stdout.write(canonical_json(result).decode("utf-8") + "\n")
+            return 0 if result["graduated"] else 1
+        if args.command == "benchmark":
+            aggregate = run_benchmark(
+                args.fixture, _json(args.sequential_plan), _json(args.parallel_plan),
+                args.output, pairs=args.pairs, timeout_ms=args.timeout_ms,
+            )
+            sys.stdout.write(canonical_json(aggregate).decode("utf-8") + "\n")
+            return 0
         if args.command == "verify-worker":
             raw_bundle = validate_execution_bundle(_json(args.plan))
             receipt = validate_worker_receipt(_json(args.receipt))
@@ -122,6 +179,17 @@ def main(argv: list[str] | None = None) -> int:
                 bundle = validate_execution_bundle(_json(args.plan), args.repo)
             else:
                 bundle = load_run_bundle(args.repo, args.run_id)
+            if args.command == "run" and not args.dry_run:
+                result = execute_run(args.repo, bundle, timeout_ms=args.timeout_ms)
+                output = {
+                    "schemaVersion": "compass-builder.controller-result.v1",
+                    "runId": result.run_id, "state": result.state["state"],
+                    "finalGreenSha": result.final_green_sha,
+                    "startedAt": result.started_at, "endedAt": result.ended_at,
+                    "elapsedMs": result.elapsed_ms, "metrics": dict(result.metrics),
+                }
+                sys.stdout.write(canonical_json(output).decode("utf-8") + "\n")
+                return 0
             spec, plan = bundle["runSpec"], bundle["wavePlan"]
             store = StateStore(args.repo, spec, plan)
             now = datetime.now(timezone.utc)
@@ -173,7 +241,8 @@ def main(argv: list[str] | None = None) -> int:
                 str(report["planningTimestamp"]), args.repo,
             )
     except (
-        CleanupError, DoctorError, GitEnvironmentError, HandoffError, PlanningError,
+        BenchmarkRunnerError, CleanupError, ComparisonError, ControllerError,
+        DoctorError, GitEnvironmentError, HandoffError, PlanningError,
         StateError, VerificationError, ValueError, OSError,
         subprocess.TimeoutExpired, UnicodeError,
     ) as exc:

@@ -87,6 +87,7 @@ class RepositoryHarnessTests(unittest.TestCase):
             self.assertEqual(repo_harness.PYTHON_CHECK_TIMEOUT_SECONDS, kwargs["timeout"])
             self.assertEqual(repo_harness.MAX_CAPTURE_BYTES, kwargs["max_output_bytes"])
         self.assertIn("tests.test_builder_verifier", runner.calls[0][0])
+        self.assertIn("tests.integration.test_builder_worktrees", runner.calls[0][0])
         self.assertEqual("discover", runner.calls[1][0][3])
 
     def test_timeout_is_failed_actionable_and_json_omits_bounded_diagnostic(self):
@@ -272,7 +273,8 @@ class RepositoryHarnessTests(unittest.TestCase):
         required = (
             "python -m unittest tests.test_builder_models -v",
             "python -m unittest discover -s tests -v",
-            "python -m unittest tests.test_builder_verifier tests.test_builder_integrator tests.test_builder_cleanup -v",
+            "python -m unittest tests.test_builder_compare tests.test_builder_benchmark_runner -v",
+            "python -m unittest tests.test_builder_verifier tests.test_builder_integrator tests.test_builder_cleanup tests.integration.test_builder_worktrees -v",
             "python -m unittest tests.test_repo_harness -v",
             "git diff --check",
         )

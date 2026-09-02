@@ -183,6 +183,11 @@ def build_profiles() -> dict[str, tuple[CheckSpec, ...]]:
             "docs/COMPASS_BUILDER_CONTRACT.md",
             "Compass Builder product and validation contract",
         ),
+        _path_check(
+            "docs.builder-benchmark",
+            "docs/COMPASS_BUILDER_BENCHMARK.md",
+            "Compass Builder paired benchmark protocol and evidence status",
+        ),
         _path_check("docs.product-contract", "docs/PRODUCT_CONTRACT.md", "Plugin Compass product contract"),
         _path_check("docs.technical-design", "docs/TECHNICAL_DESIGN.md", "repository technical design"),
         _path_check("docs.security", "SECURITY.md", "repository security policy"),
@@ -203,6 +208,8 @@ def build_profiles() -> dict[str, tuple[CheckSpec, ...]]:
             "tests.test_builder_lease",
             "tests.test_builder_handoff",
             "tests.test_builder_launcher",
+            "tests.test_builder_compare",
+            "tests.test_builder_benchmark_runner",
             "tests.test_builder_skill_contract",
         ),
         "tests/test_builder_*.py",
@@ -214,9 +221,10 @@ def build_profiles() -> dict[str, tuple[CheckSpec, ...]]:
             "tests.test_builder_verifier",
             "tests.test_builder_integrator",
             "tests.test_builder_cleanup",
+            "tests.integration.test_builder_worktrees",
         ),
-        "tests/test_builder_verifier.py; tests/test_builder_integrator.py; tests/test_builder_cleanup.py",
-        "temporary-repository verification, serial integration, and fail-closed cleanup",
+        "tests/test_builder_verifier.py; tests/test_builder_integrator.py; tests/test_builder_cleanup.py; tests/integration/test_builder_worktrees.py",
+        "temporary-repository verification, isolated workers, serial integration, and fail-closed cleanup",
     )
     harness_self_test = _python_check(
         "audit.harness-self-tests",

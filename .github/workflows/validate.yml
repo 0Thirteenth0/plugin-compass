@@ -31,8 +31,11 @@ jobs:
       - name: Run repository-wide suite
         run: python -m unittest discover -s tests -v
 
+      - name: Run focused comparator and benchmark-runner modules
+        run: python -m unittest tests.test_builder_compare tests.test_builder_benchmark_runner -v
+
       - name: Run explicit integration modules
-        run: python -m unittest tests.test_builder_verifier tests.test_builder_integrator tests.test_builder_cleanup -v
+        run: python -m unittest tests.test_builder_verifier tests.test_builder_integrator tests.test_builder_cleanup tests.integration.test_builder_worktrees -v
 
       - name: Run repository harness self-tests
         run: python -m unittest tests.test_repo_harness -v

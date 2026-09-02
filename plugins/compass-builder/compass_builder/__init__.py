@@ -23,6 +23,9 @@ from .models import (
 )
 from .lease import LeaseError, LeaseHandle, acquire_lease, inspect_lease, release_lease
 from .cleanup import CleanupError, cleanup_run
+from .benchmark import ComparisonError, compare, validate_event_ledger
+from .benchmark_runner import BenchmarkRunnerError, run_benchmark
+from .controller import ControllerError, ControllerResult, execute_run
 from .integrator import IntegrationError, IntegrationResult, integrate_verified_branch
 from .state import (
     RepositoryIdentity, StateError, StateStore, build_execution_bundle,
@@ -57,6 +60,14 @@ __all__ = [
     "release_lease",
     "CleanupError",
     "cleanup_run",
+    "ComparisonError",
+    "compare",
+    "validate_event_ledger",
+    "BenchmarkRunnerError",
+    "run_benchmark",
+    "ControllerError",
+    "ControllerResult",
+    "execute_run",
     "IntegrationError",
     "IntegrationResult",
     "integrate_verified_branch",

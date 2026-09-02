@@ -437,8 +437,9 @@ def validate_transition_evidence(previous: dict[str, Any], current: dict[str, An
         if tail["startExpectedSha"] != previous["expectedIntegrationSha"]:
             fail("currentState.waves[-1].startExpectedSha", "does not start at the prior verified head", "bind the new tail to the prior actual/verified SHA")
         for index, entry in enumerate(tail["branches"]):
-            if tuple(entry[field] for field in STATUS_FIELDS) != ("pending", "pending", "pending") or any(entry[field] is not None for field in ("mergeSha", "controllerCheckDigest", "postCheckExpectedSha")):
-                fail(f"currentState.waves[-1].branches[{index}]", "is not an initial pending branch", "append only pending/pending/pending entries without merge or check evidence")
+            statuses = tuple(entry[field] for field in STATUS_FIELDS)
+            if statuses not in {("pending", "pending", "pending"), ("running", "pending", "pending")} or any(entry[field] is not None for field in ("mergeSha", "controllerCheckDigest", "postCheckExpectedSha")):
+                fail(f"currentState.waves[-1].branches[{index}]", "is not an initial pending/running branch", "append only pending or running workers without verification, merge, or check evidence")
         return
 
     old_entries = previous["waves"][previous["currentWaveIndex"]]["branches"]

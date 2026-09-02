@@ -154,7 +154,9 @@ class StateStore:
             )
         return actual
 
-    def _wave(self, index: int, expected_sha: str) -> dict[str, object]:
+    def _wave(
+        self, index: int, expected_sha: str, *, start_workers: bool = False
+    ) -> dict[str, object]:
         plan_wave = self.plan["waves"][index]
         return {
             "waveIndex": index,
@@ -163,7 +165,7 @@ class StateStore:
                 {
                     "storyId": story_id,
                     "branch": self._branches[story_id],
-                    "workerState": "pending",
+                    "workerState": "running" if start_workers else "pending",
                     "verificationState": "pending",
                     "integrationState": "pending",
                     "preMergeExpectedSha": expected_sha,
@@ -673,7 +675,7 @@ class StateStore:
         return normalized
 
     def next_wave_state(
-        self, verified: Mapping[str, object]
+        self, verified: Mapping[str, object], *, start_workers: bool = False
     ) -> dict[str, object]:
         previous = self._validate_state(verified)
         if previous["state"] != "wave-verified":
@@ -686,7 +688,10 @@ class StateStore:
         current["previousState"] = "wave-verified"
         current["state"] = "dispatching"
         current["currentWaveIndex"] = next_index
-        current["waves"].append(self._wave(next_index, str(previous["expectedIntegrationSha"])))
+        current["waves"].append(self._wave(
+            next_index, str(previous["expectedIntegrationSha"]),
+            start_workers=start_workers,
+        ))
         try:
             _before, normalized = validate_run_state_transition(previous, current)
         except ValueError as exc:
