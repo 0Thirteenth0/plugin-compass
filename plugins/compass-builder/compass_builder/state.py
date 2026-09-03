@@ -70,7 +70,15 @@ class StateStore:
         self.run_id = str(self.spec["runId"])
         self.control_root = self.repository.root / ".compass-builder"
         self.run_root = self.control_root / "runs" / self.run_id
-        self.worktree_root = self.control_root / "worktrees" / self.run_id
+        repository_key = hashlib.sha256(
+            os.path.normcase(str(self.repository.root)).encode("utf-8")
+        ).hexdigest()[:32]
+        self.workspace_control_root = (
+            Path(tempfile.gettempdir()).resolve(strict=True)
+            / "compass-builder-workspaces"
+            / repository_key
+        )
+        self.worktree_root = self.workspace_control_root / self.run_id
         self.path = self.run_root / "state.json"
         self.registry_path = self.run_root / "controller.json"
         self.bundle_path = self.run_root / "plan-bundle.json"
@@ -99,7 +107,10 @@ class StateStore:
         if tracked.strip():
             raise StateError(".compass-builder must be absent from the repository index")
         _require_contained(self.run_root, self.control_root, label="run state path")
-        _require_contained(self.worktree_root, self.control_root, label="worktree registry root")
+        _require_contained(
+            self.worktree_root, self.workspace_control_root,
+            label="worker checkout registry root",
+        )
         for story_id, planned in self._branches.items():
             expected = f"cb/{self.run_id}/{story_id}"
             validate_branch(planned, f"wavePlan.stories.{story_id}.branch")
@@ -113,16 +124,21 @@ class StateStore:
         if story_id not in self._branches:
             raise StateError(f"story {story_id!r} is not registered in the immutable plan")
         target = self.worktree_root / story_id
-        resolved = _require_contained(target, self.worktree_root, label="registered worktree")
+        resolved = _require_contained(
+            target, self.worktree_root, label="registered worker checkout"
+        )
         forbidden = {
             self.repository.root,
             self.repository.common_git_dir,
             self.repository.git_dir,
             self.control_root.resolve(strict=False),
+            self.workspace_control_root.resolve(strict=False),
             self.worktree_root.resolve(strict=False),
         }
         if resolved in forbidden:
-            raise StateError("registered worktree targets a protected repository/controller path")
+            raise StateError(
+                "registered worker checkout targets a protected repository/controller path"
+            )
         return resolved
 
     def registrations(self) -> tuple[dict[str, str], ...]:

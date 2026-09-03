@@ -46,12 +46,6 @@ def two_story_integrated_context(base: Path, *, base_depth: int = 0) -> dict[str
     context = make_context(base, durable=False, base_depth=base_depth)
     factory = context["factory"]
     beta_branch = f"cb/{context['spec']['runId']}/beta"
-    beta = factory.worktree(
-        beta_branch,
-        factory.repo / ".compass-builder" / "worktrees" / context["spec"]["runId"] / "beta",
-        context["base"],
-    )
-    beta_head = factory.commit({"src/beta/value.txt": "beta\n"}, "beta worker", cwd=beta)
     beta_story = copy.deepcopy(context["spec"]["stories"][0])
     beta_story.update(id="beta", title="Beta", description="Implement beta safely.", writeScopes=["src/beta"])
     context["spec"]["stories"].append(beta_story)
@@ -64,6 +58,11 @@ def two_story_integrated_context(base: Path, *, base_depth: int = 0) -> dict[str
     context["plan"]["normalizedInputDigest"] = "sha256:" + hashlib.sha256(
         canonical_json(context["spec"], "run-spec")
     ).hexdigest()
+    beta_path = StateStore(
+        factory.repo, context["spec"], context["plan"], factory.environment
+    ).registered_worktree("beta")
+    beta = factory.worktree(beta_branch, beta_path, context["base"])
+    beta_head = factory.commit({"src/beta/value.txt": "beta\n"}, "beta worker", cwd=beta)
     beta_launch = prepare_launch(
         context["spec"], context["plan"], context["host"],
         planning_timestamp="2026-09-01T12:01:00Z", story_id="beta", worktree=beta,

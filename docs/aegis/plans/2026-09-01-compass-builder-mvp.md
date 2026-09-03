@@ -1,19 +1,27 @@
 # Compass Builder MVP implementation plan
 
+> Task 9 implementation amendment (2026-09-02): authorized live evidence supersedes
+> earlier linked-worktree and worker-owned-commit details below. Workers now edit only
+> remote-free full-history clones in a deterministic temporary root outside the
+> integration repository. The controller validates scope, creates one story commit,
+> imports the exact branch SHA, verifies, and integrates serially. Historical task text
+> remains as the design record; the product contract is authoritative for current behavior.
+
 ## Goal
 
 Adapt the smallest useful parts of Codex Loop into a separate, Windows-compatible
 `compass-builder` Codex plugin that selects safe sequential or parallel execution,
-applies Plugin Compass effort proposals per worker, enforces worktree/write-scope
+applies Plugin Compass effort proposals per worker, enforces isolated-clone/write-scope
 boundaries, and produces measurable verification receipts.
 
 ## Architecture
 
 Plugin Compass remains the passive policy and handoff-proposal owner. Compass Builder is
 a separate skill plus a Python 3.11+ standard-library controller. It binds each parallel
-worker to an isolated worktree through a top-level `codex exec -C` process, while Codex
-inside that process owns implementation. The controller owns worktree/branch creation,
-leases, durable run state, receipt validation, serial integration, cleanup, and final
+worker to an isolated remote-free clone through a top-level `codex exec -C` process,
+while Codex inside that process owns file edits. The controller owns clone/branch
+creation, story commits and branch import, leases, durable run state, receipt validation,
+serial integration, cleanup, and final
 acceptance. In-session subagents remain read-only reviewers until their live schema
 provides enforceable working-directory binding.
 
@@ -22,7 +30,7 @@ provides enforceable working-directory binding.
 - Codex plugin and skill packaging
 - Python 3.11+ standard library
 - JSON Schema fixtures and deterministic JSON
-- Git branches and worktrees
+- Git branches and isolated full-history clones
 - Top-level `codex exec` subprocesses with argument arrays and structured output
 - `unittest`
 - Plugin Creator, Skill Creator, and HOL plugin-scanner validation
@@ -45,7 +53,7 @@ provides enforceable working-directory binding.
   `--disable multi_agent`, `--output-schema`, and JSON event support.
 - Plugin Compass `plugin-compass.agent-task.v1` and `plugin-compass.handoff.v1`.
 - No embedded credentials, external service, daemon, or execution inside Plugin Compass.
-  Authorized worker subprocesses are bounded to registered worktrees.
+  Authorized worker subprocesses are bounded to registered remote-free clones.
 
 ## TDD route
 
@@ -354,10 +362,11 @@ Steps:
 3. Build a no-shell argument array equivalent to:
 
    ```text
-   codex exec -C WORKTREE -m MODEL -c model_reasoning_effort="EFFORT" --disable multi_agent --ephemeral -s workspace-write --approve-for-me --json --output-schema WORKER_SCHEMA -
+   codex exec -C WORKTREE -m MODEL -c model_reasoning_effort="EFFORT" --disable multi_agent --disable plugins --disable hooks --ignore-user-config --ephemeral --approve-for-me --json --output-schema WORKER_SCHEMA -
    ```
 
-   Send the bounded worker prompt on stdin. Never use bypass-sandbox, bypass-approval,
+   Send the bounded worker prompt on stdin. Preserve project rules while excluding user
+   configuration, plugins, and hooks from the worker process. Never use bypass-sandbox, bypass-approval,
    hook-trust bypass, extra writable directories, or shell interpolation.
    This task binds an existing canonical worktree path into launch material only;
    controller registration, lifecycle verification, and process execution remain Task 5.
@@ -602,11 +611,14 @@ Steps:
    preserve lower findings and their disposition.
 4. Stop and request separate user authorization before cachebuster mutation, reinstall,
    restart, or installed-copy execution. If authorized, use Plugin Creator's supported
-   update flow and run `doctor`, one sequential fixture, and one worktree-bound parallel
+   update flow and run `doctor`, one sequential fixture, and one isolated-clone parallel
    fixture against the installed copy.
 
-Expected result: source/package gates and the benchmark verdict are explicit. Installation
-remains pending until separately authorized; no plan text grants that authority.
+Actual result (2026-09-02/03): source/package gates passed; the authorized five-pair live
+benchmark graduated two-builder parallel mode with a 38.46% median improvement and no
+quality or safety regression; version `0.1.0+codex.20260903002035` was installed through
+the supported flow and passed exact-copy validation plus doctor, sequential, and parallel
+smokes. A higher concurrency ceiling remains unauthorized.
 
 ## Plan pressure test
 
@@ -614,7 +626,7 @@ remains pending until separately authorized; no plan text grants that authority.
   explicit retirement paths.
 - Architecture integrity: no executor enters Plugin Compass and no model router is
   duplicated.
-- Verification scope: unit, temporary-repo integration, top-level worktree-bound worker,
+- Verification scope: unit, temporary-repo integration, top-level isolated-clone worker,
   comparator, installed-copy, and benchmark evidence are distinct.
 - Task executability: each task names files, commands, expected outcomes, and stop gates.
 - Pressure result: proceed.
@@ -637,13 +649,13 @@ remains pending until separately authorized; no plan text grants that authority.
 - Scope fence: separate companion plugin and deterministic helper only.
 - Baseline lock: current `main`, product/security contracts, and pinned upstream commit.
 - Approved behavior: auto/sequential/parallel planning, Plugin Compass effort proposals,
-  top-level worktree-bound workers, leases/CAS, durable state/resume, serial integration,
+  top-level isolated-clone workers, leases/CAS, durable state/resume, serial integration,
   safe cleanup, receipts, and paired comparison.
 - Owner constraints: Plugin Compass advises; the invoking Codex starts Compass Builder;
   the Compass Builder controller owns subprocess dispatch, registered Git lifecycle, and
-  integration; worker Codex processes own only story edits and their one allowed commit;
+  integration; worker Codex processes own only story edits and the controller owns commits;
   tests accept.
-- Compatibility: Windows, Python 3.11+, Git worktrees, live native tool schema.
+- Compatibility: Windows, Python 3.11+, Git full-history clones, live native tool schema.
 - Retirement: native verified scheduling/receipt features may replace helper behavior;
   copied upstream material retains attribution.
 - Task batches: Tasks 1-3 foundation; Tasks 4-6 controlled execution; Tasks 7-9

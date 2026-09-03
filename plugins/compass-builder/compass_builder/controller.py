@@ -1,7 +1,7 @@
 """Public Compass Builder controller composition.
 
-The controller is the sole owner of worker worktrees, durable phase changes, and
-ordered integration.  Worker transports may edit only their registered worktree;
+The controller is the sole owner of worker checkouts, durable phase changes, and
+ordered integration. Worker transports may edit only their registered clone;
 they never receive the StateStore or integration checkout.
 """
 
@@ -15,7 +15,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Callable, Mapping, Sequence
 
 from .git_environment import GitEnvironment, prepare_git_environment
@@ -126,13 +126,21 @@ def _clean(repository: Path, environment: GitEnvironment) -> bool:
     ).stdout
 
 
-def _changed_files(
-    worktree: Path, environment: GitEnvironment, base_sha: str, head_sha: str,
-) -> list[dict[str, object]]:
-    raw = _git(
-        worktree, environment,
-        ["diff", "--name-status", "-z", "--find-renames", base_sha, head_sha, "--"],
-    ).stdout
+def _canonical_repo_path(value: str) -> str:
+    text = value.replace("\\", "/")
+    path = PurePosixPath(text)
+    if (
+        not text
+        or "\x00" in text
+        or any(ord(character) < 32 or ord(character) == 127 for character in text)
+        or path.is_absolute()
+        or any(part in {"", ".", ".."} for part in path.parts)
+    ):
+        raise ControllerError("Git emitted a non-canonical repository path")
+    return "/".join(path.parts)
+
+
+def _parse_changed_files(raw: bytes) -> list[dict[str, object]]:
     values = raw.decode("utf-8", errors="strict").split("\0")
     if values and values[-1] == "":
         values.pop()
@@ -149,8 +157,8 @@ def _changed_files(
             source, target = values[index:index + 2]
             index += 2
             changed.append({
-                "path": target.replace("\\", "/"),
-                "sourcePath": source.replace("\\", "/"),
+                "path": _canonical_repo_path(target),
+                "sourcePath": _canonical_repo_path(source),
                 "changeType": "renamed",
             })
             continue
@@ -159,10 +167,130 @@ def _changed_files(
         path = values[index]
         index += 1
         changed.append({
-            "path": path.replace("\\", "/"), "sourcePath": None,
+            "path": _canonical_repo_path(path), "sourcePath": None,
             "changeType": kinds[code],
         })
     return changed
+
+
+def _changed_files(
+    worktree: Path, environment: GitEnvironment, base_sha: str, head_sha: str,
+) -> list[dict[str, object]]:
+    raw = _git(
+        worktree, environment,
+        ["diff", "--name-status", "-z", "--find-renames", base_sha, head_sha, "--"],
+    ).stdout
+    return _parse_changed_files(raw)
+
+
+def _within_scope(path: str, scope: str) -> bool:
+    candidate = _canonical_repo_path(path).casefold()
+    boundary = _canonical_repo_path(scope).casefold()
+    return candidate == boundary or candidate.startswith(boundary + "/")
+
+
+def _worker_git(
+    worktree: Path,
+    environment: Mapping[str, str],
+    arguments: Sequence[str],
+    *,
+    check: bool = True,
+) -> subprocess.CompletedProcess[bytes]:
+    try:
+        result = run_bounded(
+            ["git", "--no-pager", "-C", str(worktree), *arguments],
+            environment=environment,
+        )
+    except BoundedProcessError as exc:
+        raise ControllerError(f"bounded worker Git operation failed: {exc}") from exc
+    if check and result.returncode:
+        detail = result.stderr.decode("utf-8", errors="replace").strip()
+        raise ControllerError(f"worker Git {arguments[0]} failed: {detail}")
+    return result
+
+
+def _require_staged_story_scope(
+    worktree: Path,
+    environment: Mapping[str, str],
+    story: Mapping[str, object],
+    changed: Sequence[Mapping[str, object]],
+) -> None:
+    scopes = tuple(str(scope) for scope in story["writeScopes"])
+    for item in changed:
+        paths = [str(item["path"])]
+        if item["sourcePath"] is not None:
+            paths.append(str(item["sourcePath"]))
+        for path in paths:
+            if not any(_within_scope(path, scope) for scope in scopes):
+                raise ControllerError(
+                    f"worker change is outside declared scope before commit: {path}"
+                )
+        if item["changeType"] == "deleted":
+            continue
+        staged = _worker_git(
+            worktree, environment, ["ls-files", "-s", "--", str(item["path"])]
+        ).stdout.decode("utf-8", errors="strict").splitlines()
+        if len(staged) != 1:
+            raise ControllerError("staged worker path has ambiguous Git index evidence")
+        mode = staged[0].split(maxsplit=1)[0]
+        if not mode.startswith("100"):
+            raise ControllerError("staged worker path is not a regular Git blob")
+
+
+def _commit_worker_edits(
+    launch: PreparedLaunch, story: Mapping[str, object]
+) -> tuple[str, list[dict[str, object]]]:
+    worktree = Path(str(launch.record["worktree"]))
+    environment = launch.environment
+    base_sha = str(launch.record["workerStartSha"])
+    before = _worker_git(worktree, environment, ["rev-parse", "HEAD"]).stdout.decode(
+        "ascii"
+    ).strip()
+    if before != base_sha:
+        raise ControllerError("worker changed HEAD before the controller-owned commit")
+    staged_before = _worker_git(
+        worktree, environment,
+        ["diff", "--cached", "--quiet", "--exit-code", "--"],
+        check=False,
+    )
+    if staged_before.returncode == 1:
+        raise ControllerError("worker changed the Git index before the controller-owned commit")
+    if staged_before.returncode != 0:
+        raise ControllerError("worker Git index state could not be inspected")
+    dirty = _worker_git(
+        worktree, environment,
+        ["status", "--porcelain=v1", "-z", "--untracked-files=all"],
+    ).stdout
+    if not dirty:
+        raise ControllerError("worker returned succeeded without story changes")
+    _worker_git(worktree, environment, ["add", "--all"])
+    staged_raw = _worker_git(
+        worktree, environment,
+        ["diff", "--cached", "--name-status", "-z", "--find-renames", base_sha, "--"],
+    ).stdout
+    changed = _parse_changed_files(staged_raw)
+    if not changed:
+        raise ControllerError("controller staging produced no story changes")
+    _require_staged_story_scope(worktree, environment, story, changed)
+    _worker_git(
+        worktree, environment,
+        ["commit", "--no-gpg-sign", "-m", f"Compass Builder: {launch.record['storyId']}"],
+    )
+    head_sha = _worker_git(
+        worktree, environment, ["rev-parse", "HEAD"]
+    ).stdout.decode("ascii").strip()
+    committed = _parse_changed_files(_worker_git(
+        worktree, environment,
+        ["diff", "--name-status", "-z", "--find-renames", base_sha, head_sha, "--"],
+    ).stdout)
+    if committed != changed:
+        raise ControllerError("controller-owned commit differs from the staged story evidence")
+    if _worker_git(
+        worktree, environment,
+        ["status", "--porcelain=v1", "-z", "--untracked-files=all"],
+    ).stdout:
+        raise ControllerError("controller-owned commit did not leave the worktree clean")
+    return head_sha, changed
 
 
 def _output_candidates(value: object):
@@ -224,52 +352,13 @@ def codex_worker_transport(
         blocker = str(exc)[:2000]
         if status == "timed-out":
             event_sink("timeout", {"storyId": launch.record["storyId"]})
-    elapsed = max(1, int((time.monotonic() - started) * 1000))
     worktree = Path(str(launch.record["worktree"]))
     head_sha: str | None = None
     changed: list[dict[str, object]] = []
     checks: list[dict[str, object]] = []
     if status == "succeeded":
         environment = launch.environment
-        head_result = run_bounded(
-            ["git", "--no-pager", "-C", str(worktree), "rev-parse", "HEAD"],
-            environment=environment,
-        )
-        if head_result.returncode:
-            raise ControllerError("worker HEAD could not be inspected after completion")
-        head_sha = head_result.stdout.decode("ascii").strip()
-        base_sha = str(launch.record["workerStartSha"])
-        raw = run_bounded(
-            ["git", "--no-pager", "-C", str(worktree), "diff", "--name-status", "-z",
-             "--find-renames", base_sha, head_sha, "--"], environment=environment,
-        )
-        values = raw.stdout.decode("utf-8").split("\0")
-        if values and values[-1] == "":
-            values.pop()
-        index = 0
-        while index < len(values):
-            marker = values[index]
-            index += 1
-            if marker.startswith(("R", "C")):
-                if marker.startswith("C"):
-                    raise ControllerError("worker emitted an unsupported Git copy record")
-                if index + 1 >= len(values):
-                    raise ControllerError("worker emitted a truncated Git rename record")
-                source, target = values[index:index + 2]
-                index += 2
-                changed.append({"path": target, "sourcePath": source, "changeType": "renamed"})
-            else:
-                kinds = {"A": "added", "M": "modified", "D": "deleted"}
-                if marker[:1] not in kinds or index >= len(values):
-                    raise ControllerError(
-                        f"worker emitted unsupported Git change type {marker!r}"
-                    )
-                path = values[index]
-                index += 1
-                changed.append({
-                    "path": path, "sourcePath": None,
-                    "changeType": kinds[marker[:1]],
-                })
+        head_sha, changed = _commit_worker_edits(launch, story)
         for index, command in enumerate(story["validationCommands"]):
             event_sink("check-rerun", {
                 "storyId": launch.record["storyId"], "commandIndex": index,
@@ -289,6 +378,7 @@ def codex_worker_transport(
         if not changed or any(item["status"] != "passed" for item in checks):
             status = "failed"
             blocker = "worker changes or required checks did not satisfy the controller"
+    elapsed = max(1, int((time.monotonic() - started) * 1000))
     receipt = {
         "schemaVersion": "compass-builder.worker-receipt.v1",
         "runId": launch.record["runId"], "storyId": launch.record["storyId"],
@@ -304,17 +394,77 @@ def codex_worker_transport(
 def _create_worktree(
     store: StateStore, environment: GitEnvironment, story_id: str, start_sha: str,
 ) -> Path:
+    """Create an object-isolated worker checkout at the registered legacy path."""
+
     target = store.registered_worktree(story_id)
     target.parent.mkdir(parents=True, exist_ok=True)
+    if target.exists() or target.is_symlink():
+        raise ControllerError("registered worker checkout already exists")
     branch = next(
         str(item["branch"]) for item in store.plan["stories"]
         if item["storyId"] == story_id
     )
     _git(
         store.repository.root, environment,
-        ["worktree", "add", "-b", branch, str(target), start_sha],
+        [
+            "clone", "--no-hardlinks", "--no-tags", "--no-checkout",
+            str(store.repository.root), str(target),
+        ],
     )
-    return target.resolve(strict=True)
+    checkout = target.resolve(strict=True)
+    _git(checkout, environment, ["checkout", "-b", branch, start_sha])
+    _git(checkout, environment, ["remote", "remove", "origin"])
+    if _git(checkout, environment, ["remote"]).stdout:
+        raise ControllerError("worker checkout retained unexpected Git remotes")
+    common = Path(_git(
+        checkout, environment,
+        ["rev-parse", "--path-format=absolute", "--git-common-dir"],
+    ).stdout.decode("utf-8", errors="strict").strip()).resolve(strict=True)
+    expected = (checkout / ".git").resolve(strict=True)
+    if common != expected or common == store.repository.common_git_dir:
+        raise ControllerError("worker checkout does not have an isolated Git database")
+    return checkout
+
+
+def _import_worker_branch(
+    store: StateStore,
+    environment: GitEnvironment,
+    receipt: Mapping[str, object],
+) -> str:
+    """Import one exact clone branch into the integration repository without checkout edits."""
+
+    worktree = Path(str(receipt["worktree"])).resolve(strict=True)
+    branch = str(receipt["branch"])
+    head_sha = str(receipt["headSha"])
+    source_ref = f"refs/heads/{branch}"
+    source_head = _git(
+        worktree, environment, ["rev-parse", "--verify", source_ref]
+    ).stdout.decode("ascii").strip()
+    if source_head != head_sha:
+        raise ControllerError("worker clone branch changed before controller import")
+    existing = _git(
+        store.repository.root, environment,
+        ["rev-parse", "--verify", source_ref], check=False,
+    )
+    if existing.returncode == 0:
+        if existing.stdout.decode("ascii").strip() != head_sha:
+            raise ControllerError("worker destination branch already exists at another SHA")
+    elif existing.returncode == 128:
+        _git(
+            store.repository.root, environment,
+            [
+                "fetch", "--no-tags", "--no-write-fetch-head", str(worktree),
+                f"{source_ref}:{source_ref}",
+            ],
+        )
+    else:
+        raise ControllerError("worker destination branch availability is ambiguous")
+    imported = _git(
+        store.repository.root, environment, ["rev-parse", "--verify", source_ref]
+    ).stdout.decode("ascii").strip()
+    if imported != head_sha:
+        raise ControllerError("imported worker branch does not match the receipt SHA")
+    return imported
 
 
 def _publish_launch(store: StateStore, story_id: str, launch: PreparedLaunch) -> None:
@@ -357,6 +507,10 @@ def execute_run(
     metrics = empty_metrics()
     first_launch: datetime | None = None
     try:
+        if not _clean(store.repository.root, environment):
+            raise ControllerError(
+                "integration checkout is not clean under the controller Git policy"
+            )
         while True:
             opening_next = state["state"] == "wave-verified"
             target_wave = int(state["currentWaveIndex"]) + (1 if opening_next else 0)
@@ -432,6 +586,10 @@ def execute_run(
                 entry["workerState"] = "complete"
             state = store.write_transition(state, completed)
             for story_id in story_ids:
+                imported = _import_worker_branch(store, environment, receipts[story_id])
+                sink("worker-branch-import", {
+                    "storyId": story_id, "headSha": imported,
+                })
                 sink("ref-status-observation", {
                     "storyId": story_id, "integrationHead": store.observed_integration_head(),
                 })

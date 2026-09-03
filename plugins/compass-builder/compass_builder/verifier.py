@@ -17,7 +17,7 @@ from .process_runner import (
     BoundedProcessError, completed_text, parse_command, run_bounded, run_bounded_text,
 )
 from .state import StateError, StateStore
-from .secure_files import read_no_follow
+from .secure_files import is_reparse, read_no_follow
 
 
 class VerificationError(ValueError):
@@ -232,6 +232,59 @@ def _registered_worktrees(
     return records
 
 
+def _require_owned_checkout(
+    root: Path,
+    primary_common_git_dir: Path,
+    worktree: Path,
+    environment: GitEnvironment,
+    branch: str,
+    head_sha: str,
+) -> None:
+    """Accept an exact legacy linked worktree or an object-isolated local clone."""
+
+    common_text = _run_git(
+        worktree, environment,
+        ["rev-parse", "--path-format=absolute", "--git-common-dir"],
+    ).stdout.decode("utf-8", errors="strict").strip()
+    common = Path(common_text).resolve(strict=True)
+    registry = _registered_worktrees(root, environment).get(worktree)
+    if common == primary_common_git_dir:
+        if (
+            registry is None
+            or registry.get("branch") != f"refs/heads/{branch}"
+            or registry.get("HEAD") != head_sha
+        ):
+            raise VerificationError("worker is not an exact registered git worktree member")
+        return
+
+    git_dir_text = _run_git(
+        worktree, environment,
+        ["rev-parse", "--path-format=absolute", "--absolute-git-dir"],
+    ).stdout.decode("utf-8", errors="strict").strip()
+    git_dir = Path(git_dir_text).resolve(strict=True)
+    expected_git_dir = (worktree / ".git").resolve(strict=True)
+    if (
+        common != expected_git_dir
+        or git_dir != expected_git_dir
+        or not expected_git_dir.is_dir()
+        or is_reparse(expected_git_dir)
+        or registry is not None
+    ):
+        raise VerificationError("worker checkout is not an exact isolated Git clone")
+    remotes = _run_git(worktree, environment, ["remote"]).stdout.decode(
+        "utf-8", errors="strict"
+    ).splitlines()
+    if remotes:
+        raise VerificationError("worker clone retained a remote during isolated execution")
+    if _run_git(
+        worktree, environment, ["rev-parse", "--is-shallow-repository"]
+    ).stdout.decode("ascii").strip() != "false":
+        raise VerificationError("worker clone must contain complete Git history")
+    alternates = expected_git_dir / "objects" / "info" / "alternates"
+    if alternates.exists() or alternates.is_symlink():
+        raise VerificationError("worker clone may not use alternate object storage")
+
+
 def _default_command_runner(
     argv: Sequence[str], cwd: Path, environment: Mapping[str, str]
 ) -> subprocess.CompletedProcess[str]:
@@ -355,19 +408,10 @@ def verify_worker(
     actual_head = _run_git(worktree, git_environment, ["rev-parse", "HEAD"]).stdout.decode("ascii").strip()
     if actual_branch != head_sha or actual_head != head_sha:
         raise VerificationError("receipt SHA is stale or the registered branch/worktree HEAD drifted")
-    common = _run_git(
-        worktree, git_environment,
-        ["rev-parse", "--path-format=absolute", "--git-common-dir"],
-    ).stdout.decode("utf-8").strip()
-    if Path(common).resolve(strict=True) != store.repository.common_git_dir:
-        raise VerificationError("worker worktree does not share the controller common Git directory")
-    registry = _registered_worktrees(root, git_environment).get(worktree)
-    if (
-        registry is None
-        or registry.get("branch") != f"refs/heads/{claimed['branch']}"
-        or registry.get("HEAD") != head_sha
-    ):
-        raise VerificationError("worker is not an exact registered git worktree member")
+    _require_owned_checkout(
+        root, store.repository.common_git_dir, worktree, git_environment,
+        str(claimed["branch"]), head_sha,
+    )
     if not _clean(worktree, git_environment):
         raise VerificationError("worker worktree is dirty, including tracked or untracked files")
 

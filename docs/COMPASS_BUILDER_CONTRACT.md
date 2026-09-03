@@ -4,7 +4,7 @@
 
 Compass Builder is a separate companion plugin to Plugin Compass. Plugin Compass remains
 read-only decision support; Compass Builder owns the orchestration workflow that applies
-Plugin Compass recommendations through worktree-bound top-level Codex workers.
+Plugin Compass recommendations through isolated top-level Codex worker clones.
 
 Working identifiers:
 
@@ -31,7 +31,8 @@ Compass Builder must let a user:
 1. Run an approved story set in `auto`, `sequential`, or `parallel` mode.
 2. Treat `auto` as a passive policy decision that chooses sequential or parallel mode.
 3. Receive a deterministic explanation for the selected mode and concurrency.
-4. Run independent parallel builders in isolated Git worktrees.
+4. Run independent parallel builders in remote-free, full-history Git clones outside the
+   integration repository.
 5. Preserve a safe sequential path for small, overlapping, ambiguous, or weakly
    validated work.
 6. Apply Plugin Compass's proposal-only, lowest-adequate effort recommendation to each
@@ -70,18 +71,20 @@ identity. Save that output unchanged and pass it to `run --plan`. `run` persists
 bundle with controller state so `resume --run-id` reloads the immutable inputs rather
 than accepting caller replacements. `run --dry-run` and `resume --dry-run` persist
 validated controller transitions without starting a model worker or performing Git
-integration. An authorized `run` without `--dry-run` uses the Task 8 controller to create
-registered worktrees, launch one dependency wave at the planned concurrency,
-independently verify every worker, and integrate verified commits serially. Live resume
+integration. An authorized `run` without `--dry-run` creates registered, remote-free
+worker clones in a deterministic temporary root outside the integration repository,
+launches one dependency wave at the planned concurrency, creates one scoped commit after
+each worker exits, independently verifies every result, and integrates verified commits
+serially. Live resume
 remains unavailable in the MVP command surface; `resume` is still dry-run-only.
 
 `doctor`, `plan`, `verify-worker`, and `compare` are read-only. Authorized live `run`,
-`benchmark`, and `cleanup` commands may create registered worktrees, launch
+`benchmark`, and `cleanup` commands may create registered worker clones, launch
 top-level Codex workers, update controller-owned run state, and perform gated serial Git
 integration. `benchmark` consumes multiple model-backed runs and therefore requires
 explicit authorization separate from source implementation.
 They never mutate installed plugins. The runner must bind each worker with the locally
-verified `codex exec -C <worktree>` surface; an in-session prompt alone is not worktree
+verified `codex exec -C <checkout>` surface; an in-session prompt alone is not checkout
 isolation.
 
 The invoking Codex skill captures the current native model catalog/tool metadata in the
@@ -103,7 +106,8 @@ Sequential is required when any of these is true:
 - a story may mutate shared runtime state;
 - decisive task-specific verification is unavailable;
 - the working tree is not clean for an isolated wave;
-- Git worktrees or an enforceable worker working-directory binding are unavailable;
+- isolated Git checkout creation or an enforceable worker working-directory binding is
+  unavailable;
 - the ready set has fewer than two eligible stories or its estimated parallelizable work
   is below the versioned coordination threshold;
 - a prior wave stopped on a conflict, scope violation, or integrated failure.
@@ -111,17 +115,17 @@ Sequential is required when any of these is true:
 ### Parallel
 
 Parallel is eligible only when every story in the proposed wave has satisfied
-dependencies, pairwise-disjoint declared write scopes, isolated worktree ownership, and
-actionable acceptance checks. Workers may commit only to their assigned worktree branch.
-The controller owns shared state, the integration branch, serial merges, and integrated
-verification.
+dependencies, pairwise-disjoint declared write scopes, isolated clone ownership, and
+actionable acceptance checks. Workers may edit only their assigned clone and may not
+mutate Git. The controller owns the one-story commit, exact branch import, shared state,
+the integration branch, serial merges, and integrated verification.
 
-Each worker is a top-level `codex exec` process bound to its registered worktree with
+Each worker is a top-level `codex exec` process bound to its registered clone with
 `-C`, an exact model, a Plugin Compass-recommended supported effort, `--disable
 multi_agent`, and a structured output schema. If the installed Codex CLI cannot prove
 those options, parallel mode is structurally unavailable. In-session
 `collaboration.spawn_agent` is not a parallel builder path unless its live schema later
-adds an enforceable worktree or working-directory field.
+adds an enforceable checkout or working-directory field.
 
 An explicit parallel request changes preference, not safety gates. If a hard gate fails,
 the run stops with evidence or falls back to sequential only when the spec permits it.
@@ -166,8 +170,9 @@ requires:
 The deterministic planner emits a versioned wave plan. Run state lives under the
 controller checkout's ignored `.compass-builder/runs/<run-id>/` directory and is updated
 atomically by the controller only. Preflight requires `.compass-builder/` to be ignored,
-untracked, and absent from the repository index; it verifies the state and worktree roots
-with `git check-ignore` before any mutation. Its run-level state machine is:
+untracked, and absent from the repository index. It verifies the state root with
+`git check-ignore` and canonically contains each external worker clone under the
+controller's deterministic temporary root before mutation. Its run-level state machine is:
 
 ```text
 planned -> dispatching -> wave-workers-complete -> wave-merging
@@ -208,8 +213,9 @@ partially integrated branch. After an intermediate branch becomes integration-ve
 the run returns to `wave-merging` for the next ordered branch. `wave-verified` advances to
 the next wave only after every entry is integration-verified.
 
-The controller records a versioned worker receipt containing the registered
-worktree/branch, exact model and effort, base/head SHAs, commit, Git-derived changed files,
+The controller records a versioned worker receipt containing the registered checkout
+(the schema retains the legacy `worktree` field name), branch, exact model and effort,
+base/head SHAs, controller-owned commit, Git-derived changed files,
 checks, elapsed time, status, and blocker when present. Receipt claims never replace Git
 object inspection or controller-run validation at the worker SHA.
 
@@ -233,7 +239,8 @@ object inspection or controller-run validation at the worker SHA.
 
 - Plugin Compass never dispatches, writes application code, or owns scheduler state.
 - Compass Builder never imports or executes discovered third-party plugin code.
-- Worker write ownership is limited to one worktree, one branch, and declared scopes.
+- Worker write ownership is limited to one remote-free clone and declared scopes; workers
+  do not own Git mutations.
 - Parallel workers never edit shared run state.
 - Workers run with nested multi-agent capability disabled and are prohibited from
   launching child workers.
@@ -242,17 +249,17 @@ object inspection or controller-run validation at the worker SHA.
 - Any unexpected conflict, out-of-scope change, stale integration HEAD, failed integrated
   check, dependency
   cycles, and unknown dependencies stop the run.
-- Failed or blocked worktrees remain available for inspection; automatic cleanup applies
+- Failed or blocked checkouts remain available for inspection; automatic cleanup applies
   only to verified merged work.
 - No worker may launch another worker.
 - Changed paths come from the complete Git `base..head` object range. Verification is
   boundary-aware, case-folded on Windows, checks both sides of renames, rejects traversal,
-  merge commits, symlinks, and submodules in the MVP, and requires exactly one worker
-  commit.
-- Cleanup uses only the controller's creation registry and confirms the canonical path,
-  `git worktree list --porcelain` entry, expected branch/head, clean state, verified merge,
-  and dedicated run root. It rejects the repository root, primary checkout, reparse
-  points/symlinks, and any path outside that root.
+  merge commits, symlinks, and submodules in the MVP, and requires exactly one
+  controller-owned story commit.
+- Cleanup uses only the controller's durable ledger and confirms canonical external-root
+  containment, a real in-checkout Git directory, no remotes or alternate object storage,
+  expected branch/head, clean state, and verified merge. It rejects the repository root,
+  primary checkout, reparse points/symlinks, and any path outside that root.
 - Controller-run checks must leave the integration checkout clean, including untracked
   files. Any validation-created mutation blocks verification and retains all evidence.
 
@@ -330,7 +337,7 @@ into one aggregate score.
 - **Done:** the selected run finishes with all worker, scope, merge, and integrated
   verification evidence passing.
 - **Needs verification:** code or a merge exists, but required evidence is unavailable.
-- **Blocked:** a dependency, permission, host capability, worktree, or validation gate
+- **Blocked:** a dependency, permission, host capability, checkout, or validation gate
   prevents safe execution.
 - **Scope exceeded:** continuation would move execution into Plugin Compass, add a daemon
   or external service, weaken acceptance, or bypass repository and authorization rules.

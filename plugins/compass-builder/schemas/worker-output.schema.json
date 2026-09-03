@@ -6,23 +6,21 @@
   "additionalProperties": false,
   "required": ["schemaVersion", "status", "summary", "acceptanceChecks", "blocker"],
   "properties": {
-    "schemaVersion": {"const": "compass-builder.worker-output.v1"},
-    "status": {"enum": ["succeeded", "failed", "blocked"]},
-    "summary": {
-      "type": "string", "minLength": 1, "maxLength": 4000,
-      "pattern": "^(?!\\s)(?:.|[\\r\\n])*(?<!\\s)$"
+    "schemaVersion": {
+      "type": "string", "const": "compass-builder.worker-output.v1"
     },
+    "status": {
+      "type": "string", "enum": ["succeeded", "failed", "blocked"]
+    },
+    "summary": {"type": "string", "minLength": 1, "maxLength": 4000},
     "acceptanceChecks": {
       "type": "array", "maxItems": 128,
       "items": {"$ref": "#/$defs/check"}
     },
     "blocker": {
-      "oneOf": [
+      "anyOf": [
         {"type": "null"},
-        {
-          "type": "string", "minLength": 1, "maxLength": 4000,
-          "pattern": "^(?!\\s)(?:.|[\\r\\n])*(?<!\\s)$"
-        }
+        {"type": "string", "minLength": 1, "maxLength": 4000}
       ]
     }
   },
@@ -32,42 +30,12 @@
       "additionalProperties": false,
       "required": ["check", "status", "evidence"],
       "properties": {
-        "check": {
-          "type": "string", "minLength": 1, "maxLength": 2000,
-          "pattern": "^(?!\\s)(?:.|[\\r\\n])*(?<!\\s)$"
+        "check": {"type": "string", "minLength": 1, "maxLength": 2000},
+        "status": {
+          "type": "string", "enum": ["passed", "failed", "not-run"]
         },
-        "status": {"enum": ["passed", "failed", "not-run"]},
-        "evidence": {
-          "type": "string", "minLength": 1, "maxLength": 4000,
-          "pattern": "^(?!\\s)(?:.|[\\r\\n])*(?<!\\s)$"
-        }
+        "evidence": {"type": "string", "minLength": 1, "maxLength": 4000}
       }
     }
-  },
-  "allOf": [
-    {
-      "if": {"properties": {"status": {"const": "succeeded"}}, "required": ["status"]},
-      "then": {
-        "properties": {
-          "blocker": {"type": "null"},
-          "acceptanceChecks": {
-            "items": {
-              "allOf": [
-                {"$ref": "#/$defs/check"},
-                {"properties": {"status": {"const": "passed"}}}
-              ]
-            }
-          }
-        }
-      },
-      "else": {
-        "properties": {
-          "blocker": {
-            "type": "string", "minLength": 1, "maxLength": 4000,
-            "pattern": "^(?!\\s)(?:.|[\\r\\n])*(?<!\\s)$"
-          }
-        }
-      }
-    }
-  ]
+  }
 }

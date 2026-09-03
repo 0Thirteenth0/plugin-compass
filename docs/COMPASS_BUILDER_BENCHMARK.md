@@ -2,11 +2,20 @@
 
 ## Status
 
-The paired runner, fail-closed comparator, synthetic transport tests, and seed receipt
-mechanics are implemented. No live Codex benchmark has been run. The two-builder ceiling
-therefore remains in force, and this document makes no measured speed claim.
+The paired runner, fail-closed comparator, synthetic transport tests, and live two-builder
+calibration are complete. On 2026-09-02, the authorized standard-library calibration
+produced five green measured pairs: median sequential time was `192476` ms and median
+parallel time was `118459` ms, a `38.46%` reduction. First-pass acceptance was 5/5 for
+both arms, interventions were 0/0, and every blocking safety metric was zero. The
+comparator returned `graduated: true`.
 
-The checked-in `tests/fixtures/compass_builder/benchmarks/` receipts are synthetic. Their
+This evidence graduates only the current two-builder policy on the recorded calibration
+fixture and host. It does not authorize a higher concurrency ceiling or claim universal
+speedup. The complete local release evidence is retained under
+`.compass-builder/task9/benchmark-paired-r1/` and is intentionally excluded from the
+source package.
+
+The checked-in `tests/fixtures/compass_builder/benchmarks/` receipts remain synthetic. Their
 30% comparator result proves arithmetic, pairing, immutable-control, safety, and ledger
 mechanics only. It is not evidence that parallel Codex builders are faster in practice
 and cannot authorize a concurrency increase.

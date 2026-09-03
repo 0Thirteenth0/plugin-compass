@@ -1,0 +1,11 @@
+# Local controller and interpreter state are not plugin package inputs.
+.compass-builder/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Never package local secret-bearing files.
+.env
+.env.*
+*.pem
+*.key

@@ -16,17 +16,18 @@ from pathlib import Path
 from typing import Callable, Mapping
 
 from .benchmark import GENESIS_HASH
+from .cleanup import cleanup_run
 from ._validation import canonical_data
 from .controller import (
     CONTROLLER_VERSION, PROMPT_VERSION, ControllerError, ControllerResult,
     WorkerTransport, codex_worker_transport, empty_metrics, execute_run,
 )
-from .git_environment import prepare_git_environment
+from .git_environment import load_git_environment, prepare_git_environment
 from .models import (
     canonical_json, validate_benchmark_aggregate_receipts,
     validate_benchmark_receipt, validate_benchmark_workloads,
 )
-from .state import build_execution_bundle, validate_execution_bundle
+from .state import StateStore, build_execution_bundle, validate_execution_bundle
 
 
 RunExecutor = Callable[..., ControllerResult]
@@ -277,6 +278,16 @@ def run_benchmark(
                 )
                 metrics.update(result.metrics)
                 final_sha = result.final_green_sha
+                run_root = repository / ".compass-builder" / "runs" / result.run_id
+                if (run_root / "git-environment").is_dir():
+                    git_environment = load_git_environment(run_root / "git-environment")
+                    cleanup_run(
+                        StateStore(
+                            repository, bundle["runSpec"], bundle["wavePlan"],
+                            git_environment,
+                        ),
+                        git_environment,
+                    )
             except ControllerError as exc:
                 terminal_status = exc.terminal_status
                 metrics.update(exc.metrics)

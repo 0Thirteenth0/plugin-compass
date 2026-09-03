@@ -1,26 +1,33 @@
 {
   "name": "compass-builder",
-  "version": "0.1.0",
-  "description": "Scaffold the write-capable companion boundary for future verified Codex build scheduling.",
+  "version": "0.1.0+codex.20260903002035",
+  "description": "Coordinate verified sequential or isolated parallel Codex builders with durable clone and benchmark evidence.",
   "author": {
     "name": "Plugin Compass Contributors"
   },
+  "homepage": "https://github.com/0Thirteenth0/plugin-compass",
+  "repository": "https://github.com/0Thirteenth0/plugin-compass",
   "license": "MIT",
   "keywords": [
     "codex-scheduling",
     "parallel-builds",
-    "worktree-orchestration"
+    "isolated-clone-orchestration"
   ],
   "skills": "./skills/",
   "interface": {
     "displayName": "Compass Builder",
-    "shortDescription": "Boundary for native Codex scheduling and verified writes.",
-    "longDescription": "A scaffolded write-capable Plugin Compass companion intended to use native Codex scheduling for verified sequential and isolated parallel build workflows. The runtime is not included yet.",
+    "shortDescription": "Coordinate verified Codex builders safely.",
+    "longDescription": "A write-capable Plugin Compass companion that coordinates bounded sequential or isolated parallel Codex workers, verifies each commit independently, integrates serially, and records resumable controller and benchmark evidence.",
     "developerName": "Plugin Compass Contributors",
     "category": "Productivity",
+    "websiteURL": "https://github.com/0Thirteenth0/plugin-compass",
     "capabilities": [
       "Write"
     ],
-    "defaultPrompt": "Review the Compass Builder scaffold and its planned native scheduling boundary."
+    "defaultPrompt": [
+      "Use Compass Builder to select the fastest safe build mode for this repository.",
+      "Run this approved story set sequentially with verification.",
+      "Run this approved story set in isolated parallel worker clones."
+    ]
   }
 }

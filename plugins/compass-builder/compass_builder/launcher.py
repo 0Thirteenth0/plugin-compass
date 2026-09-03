@@ -1,4 +1,4 @@
-"""Immutable, worktree-bound Codex launch preparation.
+"""Immutable, isolated-checkout-bound Codex launch preparation.
 
 This module constructs and validates launch material. It deliberately contains no
 subprocess call: the durable controller owns the later decision to start a worker.
@@ -68,7 +68,7 @@ BUNDLED_WORKER_SCHEMA = (
     Path(__file__).resolve().parents[1] / "schemas" / "worker-output.schema.json"
 )
 EXPECTED_WORKER_SCHEMA_DIGEST = (
-    "sha256:92e2f2e58ccd8790247722e889644ce02845ca410f01c7bc56cc41d4fe751080"
+    "sha256:a58821d1a0b301794de65f604022ebdd2d40a1839bc74741762882a336c8d0e6"
 )
 _DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 _MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,159}$")
@@ -129,8 +129,11 @@ def _expected_argv(record: Mapping[str, object]) -> tuple[str, ...]:
         "codex", "exec", "-C", str(record["worktree"]),
         "-m", str(record["exactModel"]),
         "-c", f'{record["reasoningConfigKey"]}="{record["effort"]}"',
-        "--disable", "multi_agent", "--ephemeral",
-        "-s", "workspace-write", "--approve-for-me", "--json",
+        "--disable", "multi_agent",
+        "--disable", "plugins",
+        "--disable", "hooks",
+        "--ignore-user-config", "--ephemeral",
+        "--approve-for-me", "--json",
         "--output-schema", str(record["workerOutputSchemaPath"]), "-",
     )
 
@@ -267,8 +270,11 @@ def build_worker_prompt(
         f"Write only within these repository-relative scopes:\n{scopes}\n\n"
         f"Acceptance checks:\n{acceptance or '- Use the declared independent review path.'}\n\n"
         f"Validation commands:\n{commands or '- No worker command; preserve evidence for controller review.'}\n\n"
-        "The controller owns run state, worktree lifecycle, and integration. "
+        "The controller owns run state, clone lifecycle, Git commits, and integration. "
         "Do not launch child workers or agents. Do not edit controller state. "
+        "Do not run Git mutation commands or create commits. Leave the story changes "
+        "in the worktree after running the declared checks. The controller owns scope "
+        "validation and the story commit. "
         "Return only output matching the supplied worker JSON schema.\n"
     )
     if len(prompt.encode("utf-8")) > MAX_PROMPT_BYTES:
@@ -330,7 +336,7 @@ def _load_worker_schema(path: Path) -> tuple[Path, str]:
     if (
         set(schema) != {
             "$schema", "$id", "title", "type", "additionalProperties",
-            "required", "properties", "$defs", "allOf",
+            "required", "properties", "$defs",
         }
         or schema.get("type") != "object"
         or schema.get("additionalProperties") is not False

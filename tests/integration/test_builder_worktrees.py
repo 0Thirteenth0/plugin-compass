@@ -9,6 +9,7 @@ import threading
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -17,8 +18,9 @@ if str(BUILDER) not in sys.path:
     sys.path.insert(0, str(BUILDER))
 
 from compass_builder.controller import execute_run  # noqa: E402
+from compass_builder.cleanup import cleanup_run  # noqa: E402
 from compass_builder.models import canonical_json  # noqa: E402
-from compass_builder.state import build_execution_bundle  # noqa: E402
+from compass_builder.state import StateStore, build_execution_bundle  # noqa: E402
 from tests.helpers.git_repo_factory import GitRepoFactory  # noqa: E402
 
 
@@ -137,6 +139,10 @@ class BuilderWorktreeIntegrationTests(unittest.TestCase):
             ).read_text(encoding="utf-8"))
             self.assertEqual(first_merge, beta_launch["workerStartSha"])
             self.assertEqual("complete", second_wave["branches"][0]["workerState"])
+            store = StateStore(
+                factory.repo, bundle["runSpec"], bundle["wavePlan"], factory.environment
+            )
+            self.assertEqual(2, len(cleanup_run(store, factory.environment)))
 
     def test_parallel_workers_are_isolated_then_integrated_in_plan_order(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -202,10 +208,31 @@ class BuilderWorktreeIntegrationTests(unittest.TestCase):
             self.assertEqual(2, maximum_active)
             self.assertEqual("after\n", (factory.repo / "src/alpha/value.txt").read_text())
             self.assertEqual("after\n", (factory.repo / "src/beta/value.txt").read_text())
+            run_root = factory.repo / ".compass-builder" / "runs" / result.run_id
+            for story_id in ("alpha", "beta"):
+                launch = json.loads((
+                    run_root / "launch-records" / f"{story_id}.json"
+                ).read_text(encoding="utf-8"))
+                checkout = Path(launch["worktree"])
+                common = factory.git(
+                    "rev-parse", "--path-format=absolute", "--git-common-dir",
+                    cwd=checkout,
+                ).stdout.decode().strip()
+                self.assertEqual((checkout / ".git").resolve(), Path(common).resolve())
+                self.assertNotEqual(factory.repo.joinpath(".git").resolve(), Path(common).resolve())
+                self.assertEqual(
+                    "", factory.git("remote", cwd=checkout).stdout.decode().strip()
+                )
             parents = factory.git(
                 "rev-list", "--parents", "-n", "1", result.final_green_sha
             ).stdout.decode().split()
             self.assertEqual(3, len(parents))
+            store = StateStore(
+                factory.repo, bundle["runSpec"], bundle["wavePlan"], factory.environment
+            )
+            removed = cleanup_run(store, factory.environment)
+            self.assertEqual(2, len(removed))
+            self.assertTrue(all(not path.exists() for path in removed))
 
 
 if __name__ == "__main__":

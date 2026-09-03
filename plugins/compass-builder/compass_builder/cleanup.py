@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+import shutil
+import stat
 import subprocess
 import hashlib
 from datetime import datetime, timedelta, timezone
@@ -18,7 +20,24 @@ from .state import StateError, StateStore
 
 
 class CleanupError(ValueError):
-    """A durable verified worktree cannot be removed without weakening gates."""
+    """A durable verified worker checkout cannot be removed without weakening gates."""
+
+
+def _remove_clone(path: Path) -> None:
+    """Remove a preflighted clone, clearing Git's Windows read-only object bits."""
+
+    root = path.resolve(strict=True)
+
+    def retry_readonly(function, candidate, _error):
+        literal = Path(candidate)
+        try:
+            literal.resolve(strict=False).relative_to(root)
+        except ValueError as exc:
+            raise CleanupError("clone removal callback escaped its preflighted root") from exc
+        os.chmod(literal, stat.S_IWRITE)
+        function(candidate)
+
+    shutil.rmtree(root, onerror=retry_readonly)
 
 
 def _is_reparse(path: Path) -> bool:
@@ -157,14 +176,18 @@ def _preflight_all(
     _integration_identity(store, state, environment)
     registry = _worktrees(store.repository.root, environment)
     root = store.worktree_root.resolve(strict=True)
-    if _is_reparse(root) or not root.is_dir() or not _contained(root, store.control_root):
+    if (
+        _is_reparse(root)
+        or not root.is_dir()
+        or not _contained(root, store.workspace_control_root.resolve(strict=True))
+    ):
         raise CleanupError("controller-owned worktree root is unavailable or unsafe")
     prepared: list[Path] = []
     seen: set[str] = set()
     for item in targets:
         literal = Path(item["worktree"])
         if not literal.exists() or not literal.is_dir():
-            raise CleanupError(f"registered worktree is missing: {literal}")
+            raise CleanupError(f"registered worker checkout is missing: {literal}")
         _require_real_chain(literal, root)
         target = literal.resolve(strict=True)
         if target == store.repository.root or not _contained(target, root):
@@ -175,11 +198,32 @@ def _preflight_all(
         seen.add(key)
         record = registry.get(target)
         expected_ref = f"refs/heads/{item['branch']}"
-        if record is None or record.get("branch") != expected_ref or record.get("HEAD") != item["headSha"]:
-            raise CleanupError("worktree registry branch/HEAD differs from durable merge evidence")
         common = Path(_text(target, environment, ["rev-parse", "--path-format=absolute", "--git-common-dir"])).resolve(strict=True)
-        if common != store.repository.common_git_dir:
-            raise CleanupError("cleanup target belongs to a foreign common Git directory")
+        if common == store.repository.common_git_dir:
+            if record is None or record.get("branch") != expected_ref or record.get("HEAD") != item["headSha"]:
+                raise CleanupError("worktree registry branch/HEAD differs from durable merge evidence")
+        else:
+            git_dir = Path(_text(
+                target, environment,
+                ["rev-parse", "--path-format=absolute", "--absolute-git-dir"],
+            )).resolve(strict=True)
+            expected_git_dir = (target / ".git").resolve(strict=True)
+            if (
+                record is not None
+                or common != expected_git_dir
+                or git_dir != expected_git_dir
+                or not expected_git_dir.is_dir()
+                or _is_reparse(expected_git_dir)
+            ):
+                raise CleanupError("cleanup target is not an exact isolated Git clone")
+            remotes = _text(target, environment, ["remote"]).splitlines()
+            if remotes:
+                raise CleanupError("cleanup clone retained a remote during isolated execution")
+            if _text(target, environment, ["rev-parse", "--is-shallow-repository"]) != "false":
+                raise CleanupError("cleanup clone must contain complete Git history")
+            alternates = expected_git_dir / "objects" / "info" / "alternates"
+            if alternates.exists() or alternates.is_symlink():
+                raise CleanupError("cleanup clone may not use alternate object storage")
         if _text(target, environment, ["rev-parse", "HEAD"]) != item["headSha"]:
             raise CleanupError("cleanup target HEAD changed after registry inspection")
         symbolic = _git(target, environment, ["symbolic-ref", "--quiet", "HEAD"], check=False)
@@ -194,7 +238,7 @@ def _preflight_all(
 
 
 def cleanup_run(store: StateStore, git_environment: GitEnvironment) -> tuple[Path, ...]:
-    """Remove only worktrees authorized by the durable verified integration ledger."""
+    """Remove only checkouts authorized by the durable verified integration ledger."""
 
     bundle = validate_git_environment(git_environment)
     if store.git_environment is None or store.git_environment.digest != bundle.digest or store.git_environment.root != bundle.root:
@@ -258,7 +302,12 @@ def cleanup_run(store: StateStore, git_environment: GitEnvironment) -> tuple[Pat
                 story_id=item["storyId"], worktree=item["worktree"],
                 head_sha=item["headSha"], status="removing",
             )
-            _git(store.repository.root, bundle, ["worktree", "remove", str(target)])
+            if target in _worktrees(store.repository.root, bundle):
+                _git(store.repository.root, bundle, ["worktree", "remove", str(target)])
+            else:
+                _remove_clone(target)
+                if target.exists() or target.is_symlink():
+                    raise CleanupError("isolated clone removal did not complete")
             store.record_cleanup_progress(
                 story_id=item["storyId"], worktree=item["worktree"],
                 head_sha=item["headSha"], status="removed",

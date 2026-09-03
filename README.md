@@ -1,8 +1,10 @@
 # Plugin Compass Marketplace
 
-This repository contains the local development marketplace for the `plugin-compass` Codex plugin.
+This repository contains the local development marketplace for the read-only
+`plugin-compass` advisor and its write-capable `compass-builder` companion.
 
 - Plugin package: [`plugins/plugin-compass`](plugins/plugin-compass)
+- Builder package: [`plugins/compass-builder`](plugins/compass-builder)
 - Product contract: [`docs/PRODUCT_CONTRACT.md`](docs/PRODUCT_CONTRACT.md)
 - DrSkill gap analysis: [`docs/DRSKILL_GAP_ANALYSIS.md`](docs/DRSKILL_GAP_ANALYSIS.md)
 - Technical design: [`docs/TECHNICAL_DESIGN.md`](docs/TECHNICAL_DESIGN.md)

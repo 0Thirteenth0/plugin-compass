@@ -43,12 +43,6 @@ def make_context(
         factory.git("commit", "--allow-empty", "-m", f"deep base {index}")
         initial = factory.sha("HEAD")
     run_id = "cb-test-0123456789abcdef"
-    worker = factory.worktree(
-        f"cb/{run_id}/alpha",
-        factory.repo / ".compass-builder" / "worktrees" / run_id / "alpha",
-        initial,
-    )
-    head = factory.commit({"src/alpha/value.txt": "after\n"}, "alpha worker", cwd=worker)
     host = json.loads((
         ROOT / "tests" / "fixtures" / "compass_builder" / "host-capabilities.valid.json"
     ).read_text(encoding="utf-8"))
@@ -84,6 +78,13 @@ def make_context(
         }],
         "waves": [{"waveIndex": 0, "storyIds": ["alpha"]}],
     }
+    registered = StateStore(
+        factory.repo, spec, plan, factory.environment
+    ).registered_worktree("alpha")
+    worker = factory.worktree(
+        f"cb/{run_id}/alpha", registered, initial,
+    )
+    head = factory.commit({"src/alpha/value.txt": "after\n"}, "alpha worker", cwd=worker)
     launch = prepare_launch(
         spec, plan, host, planning_timestamp="2026-09-01T12:01:00Z",
         story_id="alpha", worktree=worker,
@@ -407,7 +408,7 @@ class BuilderVerifierTests(unittest.TestCase):
                 receipt=receipt, launch=context["launch"],
             )
 
-    def test_foreign_clone_at_registered_path_is_not_controller_owned(self):
+    def test_no_remote_isolated_clone_is_accepted_but_any_remote_is_rejected(self):
         context = make_context(Path(self.temporary.name) / "foreign")
         factory, worker = context["factory"], Path(context["worker"])
         factory.git("worktree", "remove", str(worker))
@@ -419,7 +420,15 @@ class BuilderVerifierTests(unittest.TestCase):
             "switch", "-c", context["receipt"]["branch"],
             "--track", f"origin/{context['receipt']['branch']}", cwd=worker,
         )
-        with self.assertRaisesRegex(VerificationError, "common Git|registered git worktree"):
+        factory.git("remote", "remove", "origin", cwd=worker)
+        verified = self.verify(
+            factory=factory, spec=context["spec"], plan=context["plan"],
+            receipt=context["receipt"], launch=context["launch"],
+        )
+        self.assertEqual(context["head"], verified.head_sha)
+
+        factory.git("remote", "add", "foreign", str(factory.repo), cwd=worker)
+        with self.assertRaisesRegex(VerificationError, "remote"):
             self.verify(
                 factory=factory, spec=context["spec"], plan=context["plan"],
                 receipt=context["receipt"], launch=context["launch"],

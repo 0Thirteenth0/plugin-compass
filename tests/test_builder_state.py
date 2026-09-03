@@ -170,7 +170,7 @@ class BuilderStateTests(unittest.TestCase):
         registrations = self.store.registrations()
         self.assertEqual(f"cb/{self.spec['runId']}/alpha", registrations[0]["branch"])
         self.assertEqual(
-            self.repo / ".compass-builder" / "worktrees" / self.spec["runId"] / "alpha",
+            self.store.worktree_root / "alpha",
             Path(registrations[0]["worktree"]),
         )
 

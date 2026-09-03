@@ -6,13 +6,13 @@ license: MIT
 
 # Compass Builder
 
-Compass Builder coordinates dependency-ready stories while Plugin Compass passively advises the lowest adequate supported reasoning effort. The controller alone owns durable state, registered worktrees, the integration branch, leases, and recovery evidence.
+Compass Builder coordinates dependency-ready stories while Plugin Compass passively advises the lowest adequate supported reasoning effort. The controller alone owns durable state, registered worker clones, commits, the integration branch, leases, and recovery evidence.
 
-Task 8 adds an authorization-gated live `run` controller while retaining `run --dry-run` and dry-run-only `resume`. The live controller creates registered worktrees, launches only the planned dependency wave at the fixed concurrency ceiling, independently verifies every worker, and integrates verified commits serially under lease. The paired benchmark runner is implemented, but no live performance result exists until a separately authorized benchmark completes.
+An authorization-gated live `run` controller is available alongside `run --dry-run` and dry-run-only `resume`. The live controller creates remote-free full-history clones outside the integration repository, launches only the planned dependency wave at the fixed concurrency ceiling, creates one scoped commit after each worker exits, independently verifies every result, and integrates verified commits serially under lease. The paired benchmark runner may publish a performance result only from an authorized model-backed run whose complete receipts pass every comparison gate.
 
 `verify-worker --repo --plan --receipt` treats the receipt as a claim, reloads controller-owned launch and state evidence, derives scope and commit shape from isolated raw Git objects, and reruns every required worker check. Integration must acquire the branch lease, freshly repeat that verification, merge only the resulting immutable SHA, prove the merge's ordered raw parents, and durably record validation or blocker evidence.
 
-`cleanup --repo --run-id` is destructive. Invoke it only with explicit user authorization. The controller derives candidates exclusively from its durable verified-merge ledger, acquires the integration lease, checks canonical containment, Git worktree membership, branch/head identity, and cleanliness, then records each removal durably. Unsafe, dirty, raced, foreign, or unregistered worktrees are retained.
+`cleanup --repo --run-id` is destructive. Invoke it only with explicit user authorization. The controller derives candidates exclusively from its durable verified-merge ledger, acquires the integration lease, checks canonical containment, isolated-clone identity, branch/head identity, and cleanliness, then records each removal durably. Unsafe, dirty, raced, foreign, or unregistered checkouts are retained.
 
 ## Route
 
@@ -22,4 +22,4 @@ Task 8 adds an authorization-gated live `run` controller while retaining `run --
 - Read [references/recovery.md](references/recovery.md) when durable state is blocked or a prior attempt stopped.
 - Use [references/prompts/sequential-worker.md](references/prompts/sequential-worker.md) or [references/prompts/parallel-worker.md](references/prompts/parallel-worker.md) only as bounded controller-owned worker instructions. Worker stdin closes immediately after the prompt.
 
-Every worker is bound to one registered worktree and branch. Workers never write controller state or integration Git, and must not launch child workers, agents, or nested multi-agent sessions. An explicit parallel preference never bypasses a safety gate.
+Every worker is bound to one registered clone and branch. Workers never mutate Git, controller state, or the integration repository, and must not launch child workers, agents, or nested multi-agent sessions. An explicit parallel preference never bypasses a safety gate.

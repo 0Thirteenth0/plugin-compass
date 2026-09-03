@@ -145,6 +145,25 @@ def _require_exec_surface(captured: Mapping[str, CommandEvidence]) -> None:
         raise DoctorError("codex exec help does not prove exact model selection with -m/--model")
 
 
+def _require_worker_isolation_surface(captured: Mapping[str, CommandEvidence]) -> None:
+    help_text = _successful(captured, "codexExecHelp").stdout
+    if (
+        not _long_flag(help_text, "--ignore-user-config")
+        or not _long_flag(help_text, "--approve-for-me")
+    ):
+        raise DoctorError(
+            "codex exec help does not prove the required worker isolation surface"
+        )
+    features = _successful(captured, "codexFeatures").stdout
+    normalized_rows = [" ".join(line.strip().casefold().split()) for line in features.splitlines()]
+    for feature in ("plugins", "hooks"):
+        rows = [row for row in normalized_rows if row.split(maxsplit=1)[:1] == [feature]]
+        if rows != [f"{feature} stable true"]:
+            raise DoctorError(
+                "Codex feature evidence does not prove the required worker isolation surface"
+            )
+
+
 def _is_reparse(path: Path) -> bool:
     if not path.exists() and not path.is_symlink():
         return False
@@ -237,6 +256,7 @@ def doctor_from_captured(
             raise DoctorError(f"native capability {field} is inconsistent with the run spec")
     derived_support = _derived_support(captured)
     _require_exec_surface(captured)
+    _require_worker_isolation_surface(captured)
     if derived_support != host["supports"]:
         raise DoctorError("native capability support claims are inconsistent with captured CLI/Git evidence")
     provenance = host["captureSource"].casefold().replace("-", " ")

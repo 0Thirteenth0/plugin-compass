@@ -16,7 +16,8 @@ GENESIS_HASH = "sha256:" + "0" * 64
 EVENT_KINDS = {
     "attempt-start", "worker-launch", "worker-completion", "retry",
     "repair-request", "input-request", "check-rerun", "timeout",
-    "ref-status-observation", "external-git-mutation", "attempt-completion",
+    "ref-status-observation", "worker-branch-import",
+    "external-git-mutation", "attempt-completion",
 }
 BLOCKING_EVENTS = {"repair-request", "input-request", "external-git-mutation"}
 

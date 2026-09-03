@@ -20,7 +20,7 @@ python scripts/check_repo_harness.py --profile audit
 | `docs` | Required UTF-8 documentation paths and `git diff --check` | No | Focused repository validation |
 | `contracts` | `tests.test_builder_models`, including schema/fixture shape and canonical bytes | Yes | Full repository validation |
 | `unit` | Focused deterministic Builder unit modules, including paired comparator and runner mechanics | Yes | Full repository validation |
-| `integration` | Worker verification, serial integration, cleanup, and isolated controller worktrees | Yes | Full repository validation |
+| `integration` | Worker verification, serial integration, cleanup, and isolated controller clones | Yes | Full repository validation |
 | `audit` | Documentation, contracts, integration, harness self-tests, and `git diff --check` | Yes | Full repository validation |
 
 Every behavior profile (`contracts`, `unit`, `integration`, and `audit`) runs its focused
@@ -102,22 +102,33 @@ python "C:\Users\jiahu\.codex\skills\.system\skill-creator\scripts\quick_validat
 HOL exact-target lint, verification, and scan:
 
 ```powershell
-C:\Users\jiahu\.local\bin\plugin-scanner.cmd lint "C:\Users\jiahu\Desktop\Plugin Compass\plugins\compass-builder"
-C:\Users\jiahu\.local\bin\plugin-scanner.cmd verify "C:\Users\jiahu\Desktop\Plugin Compass\plugins\compass-builder"
-C:\Users\jiahu\.local\bin\plugin-scanner.cmd scan "C:\Users\jiahu\Desktop\Plugin Compass\plugins\compass-builder" --format json
+C:\Users\jiahu\.local\bin\plugin-scanner.cmd lint ./plugins/compass-builder
+C:\Users\jiahu\.local\bin\plugin-scanner.cmd verify ./plugins/compass-builder
+C:\Users\jiahu\.local\bin\plugin-scanner.cmd scan ./plugins/compass-builder --format json
 ```
+
+The relative path and forward slashes are intentional: the local command wrapper invokes
+the scanner inside WSL, where an absolute Windows path is not a valid target.
 
 Installed-copy execution is an authorization-gated release check. The marketplace cache
-location reserved for it is:
+location used for the validated Task 9 copy is:
 
 ```text
-C:\Users\jiahu\.codex\plugins\cache\plugin-compass-local\compass-builder
+C:\Users\jiahu\.codex\plugins\cache\plugin-compass-local\compass-builder\0.1.0+codex.20260903002035
 ```
 
-There is currently no Compass Builder version directory under that path, so there is no
-installed copy that can truthfully be tested. Stop and obtain separate authorization
-before cachebuster mutation, update/reinstall, restart, or installed-copy execution.
-After an authorized Plugin Creator update, record the exact generated version directory
-and run `doctor`, one sequential fixture, and one worktree-bound parallel fixture from
-that exact installed directory. Repository-source results cannot substitute for this
-gate, and an installed-copy result cannot substitute for repository validation.
+That exact installed directory contains 89 files whose relative paths and SHA-256 hashes
+match the source package 89-for-89. Plugin Creator, Skill Creator, installed-directory
+HOL scan, and `doctor` passed. The installed CLI completed a one-worker sequential smoke
+at `low` effort in 64156 ms and a two-worker parallel smoke at `medium` effort in 102707
+ms; both reached `completed` with every recorded safety and intervention metric zero.
+Independent discovery runs passed 6 sequential-fixture tests and 12 parallel-fixture
+tests. These installed-copy results complement rather than substitute for repository
+validation. Start a new Codex task before relying on implicit skill discovery from this
+new version.
+
+HOL 3.0.18 reports grade A and policy/verification pass for the cachebuster version. Its
+single low finding treats Plugin Creator's required `+codex.<cachebuster>` SemVer build
+metadata as invalid; Plugin Creator validation accepts the version, and the base source
+version scanned at 97 with no low findings before the supported cachebuster step. Five
+additional informational notices concern optional undeclared interface assets.

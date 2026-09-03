@@ -80,8 +80,11 @@ class LauncherTests(unittest.TestCase):
                 "codex", "exec", "-C", str(self.worktree),
                 "-m", self.spec["exactModel"],
                 "-c", 'model_reasoning_effort="low"',
-                "--disable", "multi_agent", "--ephemeral",
-                "-s", "workspace-write", "--approve-for-me", "--json",
+                "--disable", "multi_agent",
+                "--disable", "plugins",
+                "--disable", "hooks",
+                "--ignore-user-config", "--ephemeral",
+                "--approve-for-me", "--json",
                 "--output-schema", str(SCHEMAS / "worker-output.schema.json"), "-",
             ),
             launch.argv,
@@ -90,7 +93,16 @@ class LauncherTests(unittest.TestCase):
         self.assertNotIn("shell", launch.argv)
         self.assertNotIn("--add-dir", launch.argv)
         self.assertNotIn("--dangerously-bypass-approvals-and-sandbox", launch.argv)
+        self.assertNotIn("-s", launch.argv)
+        self.assertIn("--approve-for-me", launch.argv)
+        self.assertIn("--ignore-user-config", launch.argv)
+        self.assertNotIn("--ignore-rules", launch.argv)
         self.assertIn("Do not launch child workers or agents", launch.stdin)
+        self.assertIn(
+            "Do not run Git mutation commands or create commits",
+            launch.stdin,
+        )
+        self.assertIn("The controller owns scope validation and the story commit", launch.stdin)
         self.assertNotIn(launch.stdin, launch.argv)
         self.assertEqual("low", launch.record["effort"])
         self.assertEqual(self.spec["baseSha"], launch.record["workerStartSha"])
@@ -223,6 +235,35 @@ class LauncherTests(unittest.TestCase):
         with self.assertRaisesRegex(LaunchError, "bundled"):
             validate_launch_record(record)
 
+    def test_worker_schema_uses_the_supported_structured_output_subset(self):
+        schema = json.loads(
+            (SCHEMAS / "worker-output.schema.json").read_text(encoding="utf-8")
+        )
+
+        def nodes(value):
+            if isinstance(value, dict):
+                yield value
+                for child in value.values():
+                    yield from nodes(child)
+            elif isinstance(value, list):
+                for child in value:
+                    yield from nodes(child)
+
+        unsupported = {
+            "allOf", "oneOf", "not", "dependentRequired", "dependentSchemas",
+            "if", "then", "else",
+        }
+        observed = {
+            keyword
+            for node in nodes(schema)
+            for keyword in unsupported.intersection(node)
+        }
+        self.assertEqual(set(), observed)
+        self.assertFalse(any("pattern" in node for node in nodes(schema)))
+        for node in nodes(schema):
+            if "const" in node or "enum" in node:
+                self.assertIn("type", node)
+
     def test_launch_record_replay_rejects_worker_schema_tamper_after_prepare(self):
         record = dict(self.first_launch().record)
         schema_path = SCHEMAS / "worker-output.schema.json"
@@ -318,13 +359,13 @@ class LauncherTests(unittest.TestCase):
 
         argv = properties["argv"]
         self.assertEqual("array", argv["type"])
-        self.assertEqual(18, argv["minItems"])
-        self.assertEqual(18, argv["maxItems"])
+        self.assertEqual(21, argv["minItems"])
+        self.assertEqual(21, argv["maxItems"])
         self.assertEqual(
             {"type": "string", "minLength": 1, "maxLength": 2048},
             argv["items"],
         )
-        self.assertEqual(18, len(first["argv"]))
+        self.assertEqual(21, len(first["argv"]))
 
         attempts = {
             branch["properties"]["attempt"]["const"]: branch

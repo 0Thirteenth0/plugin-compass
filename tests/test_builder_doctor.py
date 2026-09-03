@@ -32,8 +32,8 @@ def load(name: str) -> dict:
 def evidence(repo: Path, spec: dict) -> dict[str, CommandEvidence]:
     outputs = {
         "codexVersion": "codex-cli 1.2.3\n",
-        "codexExecHelp": "-C, --cd <DIR>  -m, --model <MODEL>  --json  --output-schema <FILE>  --disable <FEATURE>\n",
-        "codexFeatures": "multi_agent stable true\n",
+        "codexExecHelp": "-C, --cd <DIR>  -m, --model <MODEL>  --json  --output-schema <FILE>  --disable <FEATURE>  --ignore-user-config  --approve-for-me\n",
+        "codexFeatures": "multi_agent stable true\nplugins stable true\nhooks stable true\n",
         "gitVersion": "git version 2.51.0.windows.1\n",
         "worktreeList": f"worktree {repo.as_posix()}\nHEAD {spec['baseSha']}\nbranch refs/heads/main\n\n",
         "repositoryRoot": str(repo) + "\n",
@@ -116,7 +116,10 @@ class DoctorTests(unittest.TestCase):
                     self.doctor(captured=captured, host=host)
         captured = copy.deepcopy(self.captured)
         item = captured["codexFeatures"]
-        captured["codexFeatures"] = CommandEvidence(item.argv, 0, "multi_agent experimental true\n")
+        captured["codexFeatures"] = CommandEvidence(
+            item.argv, 0,
+            "multi_agent experimental true\nplugins stable true\nhooks stable true\n",
+        )
         host = host_for(captured)
         with self.assertRaisesRegex(DoctorError, "support claims"):
             self.doctor(captured=captured, host=host)
@@ -147,11 +150,14 @@ class DoctorTests(unittest.TestCase):
         help_item = captured["codexExecHelp"]
         captured["codexExecHelp"] = CommandEvidence(
             help_item.argv, 0,
-            "-C --model <MODEL> --json-schema --output-schema-file --disable-old\n",
+            "-C --model <MODEL> --json-schema "
+            "--output-schema-file --disable-old --ignore-user-config --approve-for-me\n",
         )
         feature_item = captured["codexFeatures"]
         captured["codexFeatures"] = CommandEvidence(
-            feature_item.argv, 0, "multi_agent stable false but enabled elsewhere\n",
+            feature_item.argv, 0,
+            "multi_agent stable false but enabled elsewhere\n"
+            "plugins stable true\nhooks stable true\n",
         )
         host = host_for(captured)
         with self.assertRaisesRegex(DoctorError, "support claims"):
@@ -167,8 +173,36 @@ class DoctorTests(unittest.TestCase):
             with self.subTest(feature_rows=feature_rows):
                 captured = copy.deepcopy(self.captured)
                 item = captured["codexFeatures"]
-                captured["codexFeatures"] = CommandEvidence(item.argv, 0, feature_rows)
+                captured["codexFeatures"] = CommandEvidence(
+                    item.argv, 0,
+                    feature_rows + "plugins stable true\nhooks stable true\n",
+                )
                 with self.assertRaisesRegex(DoctorError, "support claims"):
+                    self.doctor(captured=captured, host=host_for(captured))
+
+    def test_missing_worker_isolation_surface_fails_closed(self):
+        for removed, replacement in (
+            ("--ignore-user-config", "--ignored-config"),
+            ("--approve-for-me", "--approve-manually"),
+        ):
+            with self.subTest(removed=removed):
+                captured = copy.deepcopy(self.captured)
+                item = captured["codexExecHelp"]
+                captured["codexExecHelp"] = CommandEvidence(
+                    item.argv, 0, item.stdout.replace(removed, replacement)
+                )
+                with self.assertRaisesRegex(DoctorError, "worker isolation surface"):
+                    self.doctor(captured=captured, host=host_for(captured))
+
+        for feature in ("plugins", "hooks"):
+            with self.subTest(feature=feature):
+                captured = copy.deepcopy(self.captured)
+                item = captured["codexFeatures"]
+                captured["codexFeatures"] = CommandEvidence(
+                    item.argv, 0,
+                    item.stdout.replace(f"{feature} stable true", f"{feature} stable false"),
+                )
+                with self.assertRaisesRegex(DoctorError, "worker isolation surface"):
                     self.doctor(captured=captured, host=host_for(captured))
 
     def test_missing_stale_or_inconsistent_native_capability_evidence_fails_closed(self):

@@ -27,12 +27,12 @@
     "handoffDigest": {"$ref": "#/$defs/digest"},
     "hostEvidenceDigest": {"$ref": "#/$defs/digest"},
     "workerOutputSchemaPath": {"$ref": "#/$defs/absolutePathSyntax"},
-    "workerOutputSchemaDigest": {"const": "sha256:92e2f2e58ccd8790247722e889644ce02845ca410f01c7bc56cc41d4fe751080"},
+    "workerOutputSchemaDigest": {"const": "sha256:a58821d1a0b301794de65f604022ebdd2d40a1839bc74741762882a336c8d0e6"},
     "promptDigest": {"$ref": "#/$defs/digest"},
     "gitEnvironmentDigest": {"$ref": "#/$defs/digest"},
     "workerStartSha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
     "argv": {
-      "type": "array", "minItems": 18, "maxItems": 18,
+      "type": "array", "minItems": 21, "maxItems": 21,
       "items": {"type": "string", "minLength": 1, "maxLength": 2048}
     },
     "previousLaunchDigest": {"oneOf": [{"$ref": "#/$defs/digest"}, {"type": "null"}]},
