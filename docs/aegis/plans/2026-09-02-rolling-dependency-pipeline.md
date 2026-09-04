@@ -6,8 +6,9 @@ Design a versioned, experimental rolling DAG pipeline for Compass Builder that c
 freed worker capacity and unlock safe dependents without weakening deterministic
 integration, outcome verification, isolation, recovery, or v1 compatibility.
 
-This is a proposed implementation plan. Only G0 documentation is authorized. G1 and all
-runtime work require separate approval.
+G0 planning and G1 contracts are delivered. G2 is the currently authorized slice and is
+limited to a pure scheduler plus its focused tests and these planning corrections. G3 and
+all runtime work require separate approval.
 
 ## Architecture
 
@@ -152,7 +153,7 @@ benchmark protocol and complete Workstream E telemetry.
 - Architecture integrity/higher-level path: pure scheduler plus side-effect adapter
 - Verification scope: contract, pure DAG, integration, crash recovery, and benchmark
 - Task executability: each slice has fixed files, gates, commands, and a safe stop
-- Pressure result: proceed to G0 only
+- Pressure result: G0 and G1 are delivered; proceed through pure G2 only and stop before G3
 
 ### Complexity Budget
 
@@ -213,22 +214,57 @@ is sufficient. It must not relabel a v1 document as v2 or add fields to a v1 sha
 
 ## Scheduler invariants
 
-The pure scheduler consumes validated v2 plan/state and emits exactly one deterministic
-decision: dispatch a bounded ordered set, wait, integrate one story, block, or complete.
+The public pure boundary is
+`decide(execution_bundle, pipeline_state, decision_evidence)`. It reuses the G1 execution
+bundle and plan/state validators, then emits exactly one closed deterministic decision:
+`block`, `complete`, `integrate`, `dispatch`, or `wait`, in that precedence order. G1 and
+all v1 contracts, schemas, validators, fixtures, public bytes, and behavior remain
+untouched.
 
-A story is dispatchable only when:
+Decision evidence is a scheduler-local, bounded, closed contract rather than a new G1 JSON
+schema. It binds its exact schema version, canonical plan digest, exact host-evidence and
+gate-policy digests, injected `observedAt` and `validUntil` RFC3339 timestamps, and exactly
+one identity-bound gate-readiness item per planned story. Items normalize independently of
+caller order and use only `actionable`, `waiting`, or `blocked`; actionable gated stories
+carry one ordered approval digest per required gate, ungated stories carry none, and
+waiting/blocked items cannot carry approval as authority. The evidence grants no execution
+authority. Missing, malformed, oversized, mismatched, ambiguous, or stale evidence fails
+closed. Freshness requires execution-bundle `planningTimestamp` not later than `observedAt`,
+and `observedAt` not later than either evidence `validUntil` or host-capabilities
+`validUntil`; the scheduler never reads a clock. Each public root argument must already be
+a mapping/decoded JSON object and cannot be coerced from a pair array.
+
+The action policy is:
+
+1. `block` for durable blocked state, an active blocker, or any blocked gate-readiness item;
+2. `complete` when every story is integration-verified with no active owners or queued
+   integration;
+3. `integrate` exactly the next eligible imported story in durable integration-ordinal
+   queue order;
+4. `dispatch` a bounded ordered candidate set up to available capacity; and
+5. `wait` otherwise.
+
+A story can appear in a G2 `dispatch` eligibility proposal only when:
 
 1. every prerequisite is `integration-verified`;
 2. a slot is free under `min(host ceiling, user ceiling, calibrated ceiling)`;
 3. its scopes do not overlap any running, completed-unverified, verified-unimported,
    imported, or integration-pending story under Windows-normalized ancestor comparison;
 4. it declares no shared-state mutation;
-5. every required outcome gate is approved and actionable under Workstream D;
-6. exact model, supported effort, registered clone, and closed worker controls are bound;
-7. the current `lastVerifiedIntegrationSha` is captured as its immutable worker start SHA;
-8. prerequisite worker, integration, and gate evidence digests are recorded.
+5. every required outcome gate is actionable with one ordered approval digest per gate;
+6. the validated execution bundle binds exact host, model, and supported-effort facts;
+7. the proposal carries current `lastVerifiedIntegrationSha` as its proposed worker start
+   SHA; and
+8. the proposal carries prerequisite worker/integration/gate evidence plus canonical
+   execution-bundle, pipeline-state, decision-evidence, plan, host, gate-policy, and
+   scheduling-policy digests.
 
-The ready queue is ordered by declared priority, then immutable specification order.
+G2 does not claim a registered clone, trusted D3 execution authority, a dispatch record, or
+permission for side effects. The future controller must revalidate those facts, including
+live clone identity and the still-current integration SHA, immediately before execution.
+
+The ready queue is ordered by lower numeric declared priority first, then immutable
+specification order.
 Integration is ordered only by the immutable topological/specification ordinal. A verified
 story that is not the next ordinal waits while eligible builders continue.
 
@@ -289,6 +325,9 @@ merge intent, merge, post-check, or gate receipt.
 - Preserve remote-free full-history clones, disabled plugins/hooks, disabled nested
   multi-agent execution, closed stdin, exact model/effort, and controller-owned commits.
 - A ready queue grants no filesystem or process authority.
+- A `dispatch` decision is only an eligibility proposal. Before any side effect, the future
+  controller must revalidate trusted Workstream D3 authorization, live clone identity,
+  current integration SHA, and dispatch-record bindings.
 - Gate commands remain executable code and require the Workstream D approval identity.
 - Validate every path canonically and reject traversal, reparse escape, repository root,
   foreign clone, stale branch, and unknown event/schema values.
@@ -299,7 +338,7 @@ merge intent, merge, post-check, or gate receipt.
 
 ## Implementation tasks and safe slices
 
-### G0 — Baseline and architecture decision (authorized now)
+### G0 — Baseline and architecture decision (delivered)
 
 Files:
 
@@ -361,10 +400,12 @@ Proposed files:
 Change necessity: scheduling rules must be falsifiable without subprocess, filesystem, Git,
 or model side effects.
 
-Strict steps: write failing decision tests for DAG readiness, priority/spec tie-break,
-joins, capacity, scope ownership, shared state, gate approval, stale evidence, integration
-ordinal, wait/block/complete, and determinism; observe RED; implement a pure
-`decide(plan, state)` boundary; rerun twice with permuted equivalent inputs.
+Strict steps: write failing decision tests for DAG readiness, lower-number priority/spec
+tie-break, joins, capacity, scope ownership, shared state, gate approval, stale evidence,
+integration ordinal, wait/block/complete, and determinism; observe RED; implement the pure
+`decide(execution_bundle, pipeline_state, decision_evidence)` boundary; rerun twice with
+permuted equivalent evidence. The decision-evidence snapshot grants no execution authority,
+and G1/v1 contracts remain untouched.
 
 Verification:
 
@@ -543,8 +584,9 @@ production fallback.
 ## Open architecture questions and recommended defaults
 
 1. Dependency readiness: require `integration-verified`, not story verification alone.
-2. Priority versus integration: priority orders dispatch candidates; immutable
-   topological/specification ordinal orders integration.
+2. Priority versus integration: lower numeric priority orders dispatch candidates first,
+   with specification order as the tie-break; immutable topological/specification ordinal
+   orders integration.
 3. Durable evidence layout: append immutable event files and derive a canonical bounded
    state snapshot; do not use one rewritable event list.
 4. Gate approval identity: bind the exact Workstream D command, marker, directory, shell,
@@ -558,19 +600,20 @@ production fallback.
 8. Token overhead threshold: report the measured trade-off in G7 and require a user policy
    decision before tokens influence automatic routing.
 
-These are recommended design defaults. G1 approval should ratify items 1–3 and 7; G4
-approval must ratify item 4; G6 controls items 5–6; G7 controls item 8.
+Items 1–3 and 7 are ratified by the delivered G1 contracts and authorized G2 scheduler.
+G4 approval must ratify item 4; G6 controls items 5–6; G7 controls item 8.
 
 ## Execution Readiness View
 
 - Intent Lock: reduce verified wall-clock tail latency without weakening correctness
 - Scope Fence: Workstream G only; no F, Ponytail, brand, environment-sync, or Unlazy work
 - Baseline Lock: v1 contracts and wave behavior remain byte/behavior compatible
-- Approved Behavior: G0 planning only
+- Approved Behavior: delivered G0/G1 plus pure, side-effect-free G2 decisions only
 - Owner/Contract Constraints: Compass Builder owns v2 execution; Plugin Compass advises
 - Compatibility Boundary: no v1 semantic edits or in-flight translation
 - Retirement Boundary: experimental v2 can be disabled without removing v1
-- Task Batches: G0, then separately approved G1→G2→G3→G4→G5→G6→G7
+- Task Batches: G0 and G1 delivered; G2 authorized; G3→G4→G5→G6→G7 remain separately
+  approved slices
 - Test Obligations: contract, pure scheduler, integration, crash recovery, v1 regression,
   matched benchmark
 - Review Gates: D enforcement before G4; E telemetry before G7; security review before
@@ -586,7 +629,7 @@ approval must ratify item 4; G6 controls items 5–6; G7 controls item 8.
 
 Separate explicit approval is required for:
 
-- G1 or any source/schema/test/fixture edit beyond this plan;
+- G3 or any source/schema/test/fixture edit beyond the four-path G2 packet;
 - exact gate-command execution and its trust binding;
 - active process cancellation;
 - live/paid model benchmarks;
@@ -607,7 +650,7 @@ automatic routing branch.
 
 ## Execution Route
 
-- Decision: no execution; planning stop
-- Evidence: only G0 documentation is authorized
+- Decision: implement and verify G2 only, then stop before runtime wiring
+- Evidence: strict RED/GREEN scheduler tests plus unchanged G1/v1 regression suites
 - Fallback: retain the current v1 wave-barrier implementation
-- User confirmation required: yes — explicit G1 approval
+- User confirmation required: yes before G3 or any side effect

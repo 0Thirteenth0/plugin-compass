@@ -1055,15 +1055,17 @@ Compass does not invoke agents. Codex remains the authorizer/invoker and Compass
 remains the sole scheduler, durable-state owner, verifier, integrator, and recovery
 authority.
 
-F5A and F5B are separate workstreams and must not be combined atomically. The active G1
+F5A and F5B are separate workstreams and must not be combined atomically. The active G2
 slice remains untouched. No F5 source, schema, test, fixture, installation, scanner run,
 commit, push, or publication is authorized by this planning entry.
 
 ## Workstream G: rolling dependency pipeline
 
-Status: proposed. Only G0 planning is authorized. The detailed implementation plan is
-`docs/aegis/plans/2026-09-02-rolling-dependency-pipeline.md`. The frozen F1/D1 plan and
-all current runtime, schema, test, and fixture changes remain untouched.
+Status: G0 planning and G1 contracts are delivered; G2 pure scheduling is the currently
+authorized slice. The detailed implementation plan is
+`docs/aegis/plans/2026-09-02-rolling-dependency-pipeline.md`. G3 and later runtime work are
+not authorized. The frozen F1/D1 plan and all G1/v1 schemas, validators, fixtures, public
+bytes, behavior, and runtime modules remain untouched.
 
 ### 1. Current wave-barrier evidence
 
@@ -1126,15 +1128,33 @@ scheduler, clone owner, verifier, integrator, and state authority.
 
 ### 5. Readiness and dispatch rules
 
-The deterministic ready queue orders eligible stories by declared priority and then
-immutable specification order. A story may dispatch only when all prerequisites are
+The public pure scheduling boundary is
+`decide(execution_bundle, pipeline_state, decision_evidence)`. It validates the G1 execution
+bundle and plan/state bindings and returns exactly one closed deterministic action with
+precedence `block`, `complete`, `integrate`, `dispatch`, then `wait`. Its bounded, closed,
+scheduler-local decision-evidence snapshot binds the canonical plan, exact host and gate
+policy evidence, injected validity timestamps, and exactly one independently normalized
+gate-readiness item per story. This snapshot is evidence only and grants no execution
+authority; missing, malformed, oversized, mismatched, ambiguous, or stale input fails
+closed. Its `observedAt` must be at or after the execution-bundle `planningTimestamp` and
+at or before both its own and the host evidence's `validUntil`. Each public root must
+already be a mapping/decoded JSON object; pair arrays are not coerced into objects.
+
+The deterministic ready queue orders eligible stories by lower numeric declared priority
+and then immutable specification order. A story may appear in the G2 `dispatch` eligibility
+proposal only when all prerequisites are
 `integration-verified`, a bounded slot is free, scopes do not overlap any active or
 integration-pending story under Windows-normalized comparison, shared state is not
-mutated, required Workstream D gates are approved/actionable, exact model/effort and
-registered clone are bound, and the current verified integration SHA plus prerequisite
-evidence digests are durably recorded.
+mutated, required gates are actionable with exact ordered approval digests, and the
+validated bundle supplies exact host/model/effort facts. The proposal carries the current
+verified integration SHA as the proposed worker start SHA, prerequisite evidence, and
+canonical input/policy digests; it does not claim durable recording or side effects.
 
 The initial calibrated ceiling remains two. Rolling never means unbounded worker creation.
+A scheduler `dispatch` is only an eligibility proposal. Immediately before side effects,
+the future controller must revalidate trusted Workstream D3 authorization, live clone
+identity, the current integration SHA, and exact dispatch-record bindings. None of those
+controller-only facts is claimed as present in the G2 scheduler output.
 
 ### 6. Verification and integration pipeline
 
@@ -1226,7 +1246,8 @@ G0 review; do not treat either range as a commitment.
 Recommended defaults requiring ratification at their owning slice:
 
 1. Dependency readiness requires `integration-verified`.
-2. Priority orders dispatch; immutable topological/specification ordinal orders merges.
+2. Lower numeric priority orders dispatch first, with specification order as the tie-break;
+   immutable topological/specification ordinal orders merges.
 3. Persist append-only event files plus a bounded canonical state snapshot.
 4. Workstream D binds exact command, marker, directory, shell, platform, environment, and
    transitive artifact digest before G4.
@@ -1237,6 +1258,8 @@ Recommended defaults requiring ratification at their owning slice:
 
 ### 14. Required user approvals
 
-Separate approval is required for G1 or any pipeline source/schema/test/fixture edit,
-gate-command execution, active cancellation, live/paid model benchmarks, installation,
-hooks, cache mutation, commit, push, publication, or cleanup. Stop after G0 and wait.
+G2 is approved only for the pure scheduler, its focused test, and planning reconciliation.
+Separate approval is required for G3 or any pipeline source/schema/test/fixture edit beyond
+that four-path packet, gate-command execution, active cancellation, live/paid model
+benchmarks, installation, hooks, cache mutation, commit, push, publication, or cleanup.
+Stop after focused G2 verification and review.
