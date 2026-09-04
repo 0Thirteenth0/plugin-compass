@@ -19,6 +19,11 @@ if str(PLUGIN_ROOT) not in sys.path:
     sys.path.insert(0, str(PLUGIN_ROOT))
 
 class StandaloneSkillDiscoveryTests(unittest.TestCase):
+    def setUp(self) -> None:
+        original_tempdir = tempfile.tempdir
+        tempfile.tempdir = str(Path(tempfile.gettempdir()).resolve(strict=True))
+        self.addCleanup(setattr, tempfile, "tempdir", original_tempdir)
+
     def test_python311_windows_reparse_attribute_detects_junction(self) -> None:
         module = importlib.import_module("plugin_compass.adapters.standalone")
 

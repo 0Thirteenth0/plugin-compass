@@ -180,6 +180,9 @@ def trusted_approval(gate: dict, **kwargs):
 
 class GateRunnerTests(unittest.TestCase):
     def setUp(self):
+        original_tempdir = tempfile.tempdir
+        tempfile.tempdir = str(Path(tempfile.gettempdir()).resolve(strict=True))
+        self.addCleanup(setattr, tempfile, "tempdir", original_tempdir)
         self.environment = dict(os.environ)
         self.environment["PYTHONIOENCODING"] = "utf-8"
         self.environment_identity = environment_digest(

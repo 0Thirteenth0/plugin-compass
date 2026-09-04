@@ -15,6 +15,11 @@ if str(PLUGIN_ROOT) not in sys.path:
 
 
 class StandaloneSkillOrderingTests(unittest.TestCase):
+    def setUp(self) -> None:
+        original_tempdir = tempfile.tempdir
+        tempfile.tempdir = str(Path(tempfile.gettempdir()).resolve(strict=True))
+        self.addCleanup(setattr, tempfile, "tempdir", original_tempdir)
+
     def test_root_order_is_total_when_source_identity_casefolds_collide(self) -> None:
         module = importlib.import_module("plugin_compass.adapters.standalone")
         with tempfile.TemporaryDirectory(prefix="Plugin Compass F2 ") as temp:
