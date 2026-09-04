@@ -20,6 +20,25 @@ from ._benchmark_usage_models import (
     validate_benchmark_token_report_shape,
 )
 from ._receipt_models import validate_worker_receipt_shape
+from ._rolling_models import (
+    DISPATCH_RECORD_VERSION,
+    EXECUTION_BUNDLE_V2_VERSION,
+    PIPELINE_EVENT_VERSION,
+    PIPELINE_PLAN_VERSION,
+    PIPELINE_STATE_VERSION,
+    RUN_SPEC_V2_VERSION,
+    validate_dispatch_record_bindings,
+    validate_dispatch_record_shape,
+    validate_execution_bundle_v2_shape,
+    validate_pipeline_event_chain,
+    validate_pipeline_event_shape,
+    validate_pipeline_plan_shape,
+    validate_pipeline_state_shape,
+    validate_rolling_execution_bundle,
+    validate_rolling_plan_bindings,
+    validate_rolling_state_bindings,
+    validate_run_spec_v2_shape,
+)
 from ._retry_models import RETRY_EVIDENCE_VERSION, validate_retry_evidence_shape
 from ._gate_models import validate_outcome_gate_ledger_shape
 from ._usage_models import (
@@ -47,6 +66,12 @@ SCHEMA_VERSIONS = {
     "benchmark-attempt-usage": ATTEMPT_USAGE_VERSION,
     "benchmark-token-report": TOKEN_REPORT_VERSION,
     "outcome-gate-ledger": "compass-builder.outcome-gate-ledger.v1",
+    "run-spec-v2": RUN_SPEC_V2_VERSION,
+    "pipeline-plan": PIPELINE_PLAN_VERSION,
+    "pipeline-state": PIPELINE_STATE_VERSION,
+    "pipeline-event": PIPELINE_EVENT_VERSION,
+    "execution-bundle-v2": EXECUTION_BUNDLE_V2_VERSION,
+    "dispatch-record": DISPATCH_RECORD_VERSION,
 }
 VALIDATORS: dict[str, Callable[[dict[str, Any]], None]] = {
     "run-spec": validate_run_spec_shape,
@@ -62,6 +87,12 @@ VALIDATORS: dict[str, Callable[[dict[str, Any]], None]] = {
     "benchmark-attempt-usage": validate_benchmark_attempt_usage_shape,
     "benchmark-token-report": validate_benchmark_token_report_shape,
     "outcome-gate-ledger": validate_outcome_gate_ledger_shape,
+    "run-spec-v2": validate_run_spec_v2_shape,
+    "pipeline-plan": validate_pipeline_plan_shape,
+    "pipeline-state": validate_pipeline_state_shape,
+    "pipeline-event": validate_pipeline_event_shape,
+    "execution-bundle-v2": validate_execution_bundle_v2_shape,
+    "dispatch-record": validate_dispatch_record_shape,
 }
 
 
@@ -116,6 +147,12 @@ validate_benchmark_aggregate = _validator("benchmark-aggregate")
 validate_benchmark_attempt_usage = _validator("benchmark-attempt-usage")
 validate_benchmark_token_report = _validator("benchmark-token-report")
 validate_outcome_gate_ledger = _validator("outcome-gate-ledger")
+validate_run_spec_v2 = _validator("run-spec-v2")
+validate_pipeline_plan = _validator("pipeline-plan")
+validate_pipeline_state = _validator("pipeline-state")
+validate_pipeline_event = _validator("pipeline-event")
+validate_execution_bundle_v2 = _validator("execution-bundle-v2")
+validate_dispatch_record = _validator("dispatch-record")
 
 
 def validate_worker_usage_with_schema(

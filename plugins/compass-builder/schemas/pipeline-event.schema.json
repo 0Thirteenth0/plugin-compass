@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openai.local/compass-builder/pipeline-event.schema.json",
+  "title": "Compass Builder append-only rolling pipeline event v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "runId", "eventId", "sequence", "previousEventDigest", "eventType", "storyId", "occurredAt", "stateBefore", "stateAfter", "evidenceDigest", "payloadDigest"],
+  "properties": {
+    "schemaVersion": {"const": "compass-builder.pipeline-event.v2"},
+    "runId": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,31}-[0-9a-f]{16,64}$"},
+    "eventId": {"$ref": "#/$defs/id"},
+    "sequence": {"type": "integer", "minimum": 1},
+    "previousEventDigest": {"anyOf": [{"$ref": "#/$defs/digest"}, {"type": "null"}]},
+    "eventType": {"enum": ["dispatch", "completion", "verification", "import", "merge-intent", "merge", "post-check", "gate-result", "block"]},
+    "storyId": {"anyOf": [{"$ref": "#/$defs/id"}, {"type": "null"}]},
+    "occurredAt": {"type": "string", "format": "date-time", "maxLength": 64, "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})$"},
+    "stateBefore": {"$ref": "#/$defs/lifecycle"},
+    "stateAfter": {"$ref": "#/$defs/lifecycle"},
+    "evidenceDigest": {"$ref": "#/$defs/digest"},
+    "payloadDigest": {"$ref": "#/$defs/digest"}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"},
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "lifecycle": {"enum": ["never-launched", "running", "process-unknown", "worker-complete-unverified", "verified-unimported", "imported-awaiting-integration", "merged-awaiting-post-check", "integration-verified", "blocked"]}
+  }
+}

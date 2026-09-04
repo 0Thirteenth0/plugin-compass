@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openai.local/compass-builder/pipeline-plan.schema.json",
+  "title": "Compass Builder immutable rolling pipeline plan v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "runId", "baseSha", "integrationBranch", "integrationExpectedSha", "normalizedInputDigest", "hostEvidenceDigest", "effortPolicyVersion", "executionMode", "dispatchStrategy", "schedulingPolicyDigest", "gatePolicyDigest", "reasons", "concurrency", "initialReadyStoryIds", "stories"],
+  "properties": {
+    "schemaVersion": {"const": "compass-builder.pipeline-plan.v2"},
+    "runId": {"$ref": "#/$defs/runId"},
+    "baseSha": {"$ref": "#/$defs/sha"},
+    "integrationBranch": {"$ref": "run-spec.v2.schema.json#/$defs/branch"},
+    "integrationExpectedSha": {"$ref": "#/$defs/sha"},
+    "normalizedInputDigest": {"$ref": "#/$defs/digest"},
+    "hostEvidenceDigest": {"$ref": "#/$defs/digest"},
+    "effortPolicyVersion": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^(?!\\s)(?![\\s\\S]*\\s$)[\\s\\S]+$"},
+    "executionMode": {"enum": ["sequential", "parallel"]},
+    "dispatchStrategy": {"enum": ["wave-barrier", "rolling"]},
+    "schedulingPolicyDigest": {"$ref": "#/$defs/digest"},
+    "gatePolicyDigest": {"$ref": "#/$defs/digest"},
+    "reasons": {"type": "array", "minItems": 1, "maxItems": 64, "uniqueItems": true, "items": {"$ref": "#/$defs/nonEmpty"}},
+    "concurrency": {"type": "integer", "minimum": 1},
+    "initialReadyStoryIds": {"type": "array", "minItems": 1, "maxItems": 128, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
+    "stories": {"type": "array", "minItems": 1, "maxItems": 128, "items": {"$ref": "#/$defs/story"}}
+  },
+  "$defs": {
+    "nonEmpty": {"type": "string", "minLength": 1, "maxLength": 4096, "pattern": "^(?!\\s)(?![\\s\\S]*\\s$)[\\s\\S]+$"},
+    "sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "runId": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,31}-[0-9a-f]{16,64}$"},
+    "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"},
+    "story": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["storyId", "specificationOrder", "integrationOrdinal", "dependsOn", "branch", "recommendedEffort", "handoffDigest", "writeScopes", "requiredOutcomeGateIds"],
+      "properties": {
+        "storyId": {"$ref": "#/$defs/id"},
+        "specificationOrder": {"type": "integer", "minimum": 0},
+        "integrationOrdinal": {"type": "integer", "minimum": 1},
+        "dependsOn": {"type": "array", "maxItems": 128, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
+        "branch": {"$ref": "run-spec.v2.schema.json#/$defs/branch"},
+        "recommendedEffort": {"enum": ["low", "medium", "high", "xhigh", "max", "ultra"]},
+        "handoffDigest": {"$ref": "#/$defs/digest"},
+        "writeScopes": {"type": "array", "minItems": 1, "maxItems": 128, "uniqueItems": true, "items": {"$ref": "run-spec.v2.schema.json#/$defs/scope"}},
+        "requiredOutcomeGateIds": {"type": "array", "maxItems": 256, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}}
+      }
+    }
+  }
+}

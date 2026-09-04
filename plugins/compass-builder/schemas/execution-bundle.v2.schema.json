@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openai.local/compass-builder/execution-bundle.v2.schema.json",
+  "title": "Compass Builder rolling execution evidence bundle v2",
+  "description": "Validation proves closed bindings only and does not authorize execution.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "runSpec", "pipelinePlan", "hostCapabilities", "planningTimestamp"],
+  "properties": {
+    "schemaVersion": {"const": "compass-builder.execution-bundle.v2"},
+    "runSpec": {"$ref": "run-spec.v2.schema.json"},
+    "pipelinePlan": {"$ref": "pipeline-plan.schema.json"},
+    "hostCapabilities": {"$ref": "host-capabilities.schema.json"},
+    "planningTimestamp": {"type": "string", "format": "date-time", "maxLength": 64, "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})$"}
+  }
+}

@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openai.local/compass-builder/run-spec.v2.schema.json",
+  "title": "Compass Builder experimental rolling run spec v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "runId", "baseRef", "baseSha", "integrationBranch", "integrationExpectedSha", "executionMode", "dispatchStrategy", "experimentalRollingAuthorized", "exactModel", "effortPolicyVersion", "hostConcurrencyCeiling", "userConcurrencyCeiling", "calibratedConcurrencyCeiling", "validationCommands", "stories"],
+  "properties": {
+    "schemaVersion": {"const": "compass-builder.run-spec.v2"},
+    "runId": {"$ref": "#/$defs/runId"},
+    "baseRef": {"type": "string", "minLength": 1, "maxLength": 240, "pattern": "^(?!\\s)(?![\\s\\S]*\\s$)[\\s\\S]+$"},
+    "baseSha": {"$ref": "#/$defs/sha"},
+    "integrationBranch": {"$ref": "#/$defs/branch"},
+    "integrationExpectedSha": {"$ref": "#/$defs/sha"},
+    "executionMode": {"enum": ["sequential", "parallel"]},
+    "dispatchStrategy": {"enum": ["wave-barrier", "rolling"]},
+    "experimentalRollingAuthorized": {"type": "boolean"},
+    "exactModel": {"allOf": [{"$ref": "#/$defs/model"}, {"not": {"const": "inherit"}}]},
+    "effortPolicyVersion": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^(?!\\s)(?![\\s\\S]*\\s$)[\\s\\S]+$"},
+    "hostConcurrencyCeiling": {"type": "integer", "minimum": 1},
+    "userConcurrencyCeiling": {"type": "integer", "minimum": 1},
+    "calibratedConcurrencyCeiling": {"type": "integer", "minimum": 1},
+    "validationCommands": {"type": "array", "minItems": 1, "maxItems": 256, "uniqueItems": true, "items": {"$ref": "#/$defs/nonEmpty"}},
+    "stories": {"type": "array", "minItems": 1, "maxItems": 128, "description": "Topologically ordered stories; every dependency must be an earlier story.", "items": {"$ref": "#/$defs/story"}}
+  },
+  "allOf": [
+    {"if": {"properties": {"dispatchStrategy": {"const": "rolling"}}}, "then": {"properties": {"experimentalRollingAuthorized": {"const": true}}}}
+  ],
+  "$defs": {
+    "nonEmpty": {"type": "string", "minLength": 1, "maxLength": 4096, "pattern": "^(?!\\s)(?![\\s\\S]*\\s$)[\\s\\S]+$"},
+    "model": {"type": "string", "minLength": 1, "maxLength": 160, "pattern": "^(?!\\s)(?![\\s\\S]*\\s$)[\\s\\S]+$"},
+    "sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "runId": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,31}-[0-9a-f]{16,64}$"},
+    "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"},
+    "branch": {"type": "string", "minLength": 1, "maxLength": 240, "pattern": "^(?!@$)(?![-/])(?!.*(?:^|/)\\.)(?!.*(?:^|/)[^/]*\\.[Ll][Oo][Cc][Kk](?:/|$))(?!.*(?:^|/)(?:[Cc][Oo][Nn]|[Pp][Rr][Nn]|[Aa][Uu][Xx]|[Nn][Uu][Ll]|[Cc][Oo][Mm][1-9]|[Ll][Pp][Tt][1-9])(?:\\.[^/]*)?(?:/|$))(?!.*(?:^|/)[^/]*[. ](?:/|$))(?!.*(?:\\.\\.|//|@\\{|\\\\|[\\u0000-\\u0020\\u007f~^:?*\\[\\]<>|]|\\s|\\x22))[^/]+(?:/[^/]+)*(?<![/. ])$"},
+    "scope": {"type": "string", "minLength": 1, "maxLength": 512, "pattern": "^(?!\\s)(?![\\s\\S]*\\s$)(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*[\\u0000-\\u001f\\u007f:<>|?*])(?!.*\\x22)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*//)(?!.*(?:^|/)[^/]*[. ](?:/|$))(?!.*(?:^|/)(?:[Cc][Oo][Nn]|[Pp][Rr][Nn]|[Aa][Uu][Xx]|[Nn][Uu][Ll]|[Cc][Oo][Mm][1-9]|[Ll][Pp][Tt][1-9])(?:\\.[^/]*)?(?:/|$))[^/]+(?:/[^/]+)*$"},
+    "sharedState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "description"],
+      "properties": {
+        "mode": {"enum": ["none", "read-only", "mutates"]},
+        "description": {"type": "string", "minLength": 1, "maxLength": 500, "pattern": "^(?!\\s)(?![\\s\\S]*\\s$)[\\s\\S]+$"}
+      }
+    },
+    "story": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "description", "dependsOn", "writeScopes", "acceptanceChecks", "validationCommands", "independentReviewPath", "sharedState", "priority", "completionState", "complexity", "ambiguity", "risk", "validationStrength", "requiredOutcomeGateIds"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "title": {"type": "string", "minLength": 1, "maxLength": 160, "pattern": "^(?!\\s)(?![\\s\\S]*\\s$)[\\s\\S]+$"},
+        "description": {"type": "string", "minLength": 1, "maxLength": 2000, "pattern": "^(?!\\s)(?![\\s\\S]*\\s$)[\\s\\S]+$"},
+        "dependsOn": {"type": "array", "maxItems": 128, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
+        "writeScopes": {"type": "array", "minItems": 1, "maxItems": 128, "uniqueItems": true, "items": {"$ref": "#/$defs/scope"}},
+        "acceptanceChecks": {"type": "array", "maxItems": 256, "uniqueItems": true, "items": {"$ref": "#/$defs/nonEmpty"}},
+        "validationCommands": {"type": "array", "maxItems": 256, "uniqueItems": true, "items": {"$ref": "#/$defs/nonEmpty"}},
+        "independentReviewPath": {"type": ["string", "null"], "minLength": 1, "maxLength": 1000, "pattern": "^(?!\\s)(?![\\s\\S]*\\s$)[\\s\\S]+$"},
+        "sharedState": {"$ref": "#/$defs/sharedState"},
+        "priority": {"type": "integer", "minimum": 0},
+        "completionState": {"enum": ["pending", "completed"]},
+        "complexity": {"enum": ["low", "medium", "high"]},
+        "ambiguity": {"enum": ["low", "medium", "high"]},
+        "risk": {"enum": ["low", "medium", "high"]},
+        "validationStrength": {"enum": ["none", "partial", "decisive"]},
+        "requiredOutcomeGateIds": {"type": "array", "maxItems": 256, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}}
+      }
+    }
+  }
+}
