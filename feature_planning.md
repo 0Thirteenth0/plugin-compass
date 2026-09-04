@@ -1036,6 +1036,29 @@ This slice uses only synthetic event fixtures and temporary repositories. It doe
 authorize the live paired benchmark, G1, installation, external monitors, hooks, plugin
 cache mutation, commit, push, publication, or cleanup. Those remain separate decisions.
 
+## Proposed Workstream F5: trust baseline and execution topology
+
+Status: proposed; planning only. The evidence-backed architecture and separately
+reviewable implementation slices are recorded in
+`docs/aegis/plans/2026-09-03-f5-trust-topology.md`.
+
+F5A proposes an explicitly invoked trust-baseline skill that fingerprints exact
+authoritative plugin and standalone-skill artifacts, coordinates bounded static scanners,
+and writes immutable content-addressed evidence only to a dedicated Plugin Compass data
+directory. Ordinary Plugin Compass inventory, assessment, recommendation, and prompt
+paths remain read-only. Scanner evidence grants neither invocation nor mutation authority.
+
+F5B proposes a closed advisory execution-topology contract covering keep-local,
+sequential-builder, parallel-builders, uncapped distinct read-only review assignments,
+and lowest-adequate supported reasoning effort for fastest verified completion. Plugin
+Compass does not invoke agents. Codex remains the authorizer/invoker and Compass Builder
+remains the sole scheduler, durable-state owner, verifier, integrator, and recovery
+authority.
+
+F5A and F5B are separate workstreams and must not be combined atomically. The active G1
+slice remains untouched. No F5 source, schema, test, fixture, installation, scanner run,
+commit, push, or publication is authorized by this planning entry.
+
 ## Workstream G: rolling dependency pipeline
 
 Status: proposed. Only G0 planning is authorized. The detailed implementation plan is

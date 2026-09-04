@@ -9,6 +9,7 @@
 | Plan | Active | [`plans/2026-09-02-workstreams-f2-d2.md`](plans/2026-09-02-workstreams-f2-d2.md) |
 | Plan | Completed | [`plans/2026-09-02-workstreams-f3-d3.md`](plans/2026-09-02-workstreams-f3-d3.md) |
 | Plan | Completed | [`plans/2026-09-03-workstreams-f4-e1.md`](plans/2026-09-03-workstreams-f4-e1.md) |
+| Plan | Proposed | [`plans/2026-09-03-f5-trust-topology.md`](plans/2026-09-03-f5-trust-topology.md) |
 | Plan | Proposed | [`plans/2026-09-02-rolling-dependency-pipeline.md`](plans/2026-09-02-rolling-dependency-pipeline.md) |
 | Work | Completed | [`work/2026-09-01-compass-builder-task5/10-intent.md`](work/2026-09-01-compass-builder-task5/10-intent.md) |
 | Work | Completed | [`work/2026-09-01-compass-builder-task6/10-intent.md`](work/2026-09-01-compass-builder-task6/10-intent.md) |
