@@ -1117,7 +1117,7 @@ class GateRunnerTests(unittest.TestCase):
         self.assertEqual("x" * 37, result.stdout)
 
     def test_relative_argv0_is_rejected_when_gate_cwd_differs_from_controller_cwd(self):
-        relative_executable = os.path.relpath(Path(sys.executable).resolve(), Path.cwd())
+        relative_executable = Path(sys.executable).name
         gate = command_gate(
             "absolute-executable",
             render_direct_command([relative_executable, "-c", "print('ok', end='')"]),
