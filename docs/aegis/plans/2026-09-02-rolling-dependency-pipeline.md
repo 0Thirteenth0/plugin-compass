@@ -6,9 +6,10 @@ Design a versioned, experimental rolling DAG pipeline for Compass Builder that c
 freed worker capacity and unlock safe dependents without weakening deterministic
 integration, outcome verification, isolation, recovery, or v1 compatibility.
 
-G0 planning and G1 contracts are delivered. G2 is the currently authorized slice and is
-limited to a pure scheduler plus its focused tests and these planning corrections. G3 and
-all runtime work require separate approval.
+G0 planning, G1 contracts, G2 pure scheduling, and G3A durable dispatch state are delivered.
+G3A is limited to an isolated durable dispatch foundation plus its focused tests and these
+planning corrections. The user approved G3A commit review, commit, and push on 2026-09-04.
+G3B live same-frontier control and all later runtime work require separate approval.
 
 ## Architecture
 
@@ -64,8 +65,8 @@ An in-flight v2 run is never translated, downgraded, or resumed through v1 state
 
 - Mode: auto
 - Decision: strict for G1 through G6; skipped for G0 documentation and G7 report-only work
-- Strict authority: explicit project request for G1 contract-first tests; recorded auto
-  decision for state, scheduling, execution, and recovery behavior
+- Strict authority: explicit project request for G1 contract-first tests and G3A durable
+  state; recorded auto decision for scheduling, later execution, and recovery behavior
 - Strict signals: public contracts, persistence, state transitions, compatibility,
   subprocess orchestration, and security-sensitive recovery
 - Light eligibility: none for G1 through G6
@@ -153,7 +154,8 @@ benchmark protocol and complete Workstream E telemetry.
 - Architecture integrity/higher-level path: pure scheduler plus side-effect adapter
 - Verification scope: contract, pure DAG, integration, crash recovery, and benchmark
 - Task executability: each slice has fixed files, gates, commands, and a safe stop
-- Pressure result: G0 and G1 are delivered; proceed through pure G2 only and stop before G3
+- Pressure result: G0 through G2 are delivered; proceed through isolated G3A only and stop
+  before G3B live control
 
 ### Complexity Budget
 
@@ -163,9 +165,15 @@ benchmark protocol and complete Workstream E telemetry.
   security-sensitive persistence owner
 - Projected post-change pressure: over-budget if rolling logic is added in place; within
   budget with dedicated v2 owners
-- Budget result: at-risk
+- Budget result: governed soft overrun. G3A's single authorized persistence owner is about
+  1,014 physical / 951 nonblank lines and its focused test owner is about 1,140 / 1,018 after
+  the reviewed CAS, reparse, durability, and history-reconstruction repairs. Both exceed
+  the 800-line soft signal but remain below the 1,200-line hard stop.
 - Planned governance: add `rolling_scheduler.py`, `rolling_state.py`, and
-  `rolling_controller.py`; keep existing v1 modules wiring-only
+  `rolling_controller.py`; keep existing v1 modules wiring-only. Before G3B authorization,
+  require an explicit extraction/ownership review of `rolling_state.py` and its focused
+  test owner (especially OS-specific atomic/directory-durability primitives versus
+  transition/history folding) rather than allowing the live controller to grow them.
 
 ### Plan-Time Complexity Check
 
@@ -390,9 +398,9 @@ python -m unittest tests.test_builder_controller tests.test_builder_state tests.
 
 Estimate: 6–10 hours. Safe stop: v2 contracts green; runtime remains v1-only.
 
-### G2 — Pure deterministic scheduler engine
+### G2 — Pure deterministic scheduler engine (delivered)
 
-Proposed files:
+Files:
 
 - Create `plugins/compass-builder/compass_builder/rolling_scheduler.py`.
 - Create `tests/test_builder_rolling_scheduler.py`.
@@ -415,7 +423,40 @@ python -m unittest tests.test_builder_rolling_scheduler -v
 
 Estimate: 6–10 hours. Safe stop: pure decisions green; no runtime wiring.
 
-### G3 — Rolling-frontier refill
+### G3A — Durable dispatch foundation (delivered)
+
+Files:
+
+- Create `plugins/compass-builder/compass_builder/rolling_state.py`.
+- Create `tests/test_builder_rolling_state.py`.
+- Modify this plan and `feature_planning.md` for delivery reconciliation.
+
+Change necessity: no v2 owner can currently bind a validated execution bundle to canonical
+initial state or durably publish dispatch/completion evidence before future process work.
+
+Strict steps: write failing tests for canonical initialization, the separate
+`.compass-builder/rolling-runs/<runId>/` root, immutable bundle/controller identity,
+transaction intents, dispatch and completion event chaining, canonical-byte CAS,
+idempotent exact retry, explicit interrupted publication, malformed/oversized/unknown
+artifacts, reparse/path escape, and spaces in repository paths. Implement only the durable
+owner. Publish the exact G1 dispatch record and dispatch event before atomically advancing
+state to `running`; publish completion evidence to `worker-complete-unverified`. Do not
+launch, verify, import, integrate, unlock, recover processes, or add a CLI route.
+
+Verification:
+
+```powershell
+python -m unittest tests.test_builder_rolling_state -v
+python -m unittest tests.test_builder_rolling_models tests.test_builder_rolling_scheduler -v
+python -m unittest tests.test_builder_models tests.test_builder_state -v
+```
+
+Estimate: 4–6 hours. Safe stop: tested durable dispatch/completion owner remains unreachable
+from the production CLI and launches no worker. Complexity remains a governed soft overrun;
+the pre-G3B extraction/ownership review above is mandatory and is not satisfied merely by
+remaining below the hard stop.
+
+### G3B — Live same-frontier controller and refill
 
 Proposed files:
 
@@ -436,7 +477,8 @@ Verification:
 python -m unittest tests.test_builder_rolling_controller tests.test_builder_controller -v
 ```
 
-Estimate: 8–14 hours. Safe stop: same-start-SHA frontier refill only.
+Estimate: 4–8 hours after G3A. Safe stop: same-start-SHA frontier refill only; no dependent
+unlock.
 
 ### G4 — Per-completion verification and import
 
@@ -492,17 +534,17 @@ Estimate: 12–20 hours. Safe stop: full two-worker rolling pipeline, explicit v
 
 Proposed files:
 
-- Create `plugins/compass-builder/compass_builder/rolling_state.py`.
-- Create `tests/test_builder_rolling_state.py`.
+- Create `plugins/compass-builder/compass_builder/rolling_recovery.py`.
 - Create `tests/integration/test_builder_rolling_recovery.py`.
+- Modify `rolling_controller.py` only through a narrow reconciliation boundary.
 
 Change necessity: mixed in-flight states cannot be safely resumed by v1 wave recovery.
 
 Strict steps: crash after each launch/completion/verification/import/intent/merge/post-check
-boundary; observe blocked or duplicate behavior before implementation; add exact-event
-reconciliation; prove no duplicated side effect. Keep active processes drain-only. Add a
-separate cancellation sub-slice only after process identity and bounded descendant
-termination are proven.
+boundary; observe blocked or duplicate behavior before implementation; reconcile durable
+events with process identity, Git state, and exact prior effects; prove no duplicated side
+effect across restart. Keep active processes drain-only. Add a separate cancellation
+sub-slice only after process identity and bounded descendant termination are proven.
 
 Verification:
 
@@ -600,19 +642,21 @@ production fallback.
 8. Token overhead threshold: report the measured trade-off in G7 and require a user policy
    decision before tokens influence automatic routing.
 
-Items 1–3 and 7 are ratified by the delivered G1 contracts and authorized G2 scheduler.
-G4 approval must ratify item 4; G6 controls items 5–6; G7 controls item 8.
+Items 1–2 and 7 are ratified by the delivered G1 contracts and G2 scheduler. Delivered
+G3A implements item 3 without runtime reachability. G4 approval must ratify item 4; G6
+controls items 5–6; G7 controls item 8.
 
 ## Execution Readiness View
 
 - Intent Lock: reduce verified wall-clock tail latency without weakening correctness
 - Scope Fence: Workstream G only; no F, Ponytail, brand, environment-sync, or Unlazy work
 - Baseline Lock: v1 contracts and wave behavior remain byte/behavior compatible
-- Approved Behavior: delivered G0/G1 plus pure, side-effect-free G2 decisions only
+- Approved Behavior: delivered G0–G2 plus G3A immutable dispatch/completion publication;
+  no worker launch or production route
 - Owner/Contract Constraints: Compass Builder owns v2 execution; Plugin Compass advises
 - Compatibility Boundary: no v1 semantic edits or in-flight translation
 - Retirement Boundary: experimental v2 can be disabled without removing v1
-- Task Batches: G0 and G1 delivered; G2 authorized; G3→G4→G5→G6→G7 remain separately
+- Task Batches: G0–G3A delivered; G3B→G4→G5→G6→G7 remain separately
   approved slices
 - Test Obligations: contract, pure scheduler, integration, crash recovery, v1 regression,
   matched benchmark
@@ -627,14 +671,17 @@ G4 approval must ratify item 4; G6 controls items 5–6; G7 controls item 8.
 
 ## Required approvals
 
+The user authorized review, commit, and push of the four-file G3A packet on 2026-09-04.
+That approval does not extend to later slices or other repository changes.
+
 Separate explicit approval is required for:
 
-- G3 or any source/schema/test/fixture edit beyond the four-path G2 packet;
+- G3B or any source/schema/test/fixture edit beyond the four-path G3A packet;
 - exact gate-command execution and its trust binding;
 - active process cancellation;
 - live/paid model benchmarks;
-- plugin installation, hook enablement, cache mutation, commit, push, publication, or
-  cleanup.
+- plugin installation, hook enablement, cache mutation, publication, cleanup, or
+  commit/push beyond the approved G3A packet.
 
 ## Risks and retirement
 
@@ -650,7 +697,63 @@ automatic routing branch.
 
 ## Execution Route
 
-- Decision: implement and verify G2 only, then stop before runtime wiring
-- Evidence: strict RED/GREEN scheduler tests plus unchanged G1/v1 regression suites
+- Decision: close out the verified G3A packet, then stop before live controller wiring
+- Evidence: strict RED/GREEN rolling-state tests plus unchanged G1/G2/v1 regression suites
 - Fallback: retain the current v1 wave-barrier implementation
-- User confirmation required: yes before G3 or any side effect
+- User confirmation required: yes before G3B, process launch, or any later side effect
+
+## G3A verification and next-session handoff — 2026-09-04
+
+The implementation used one sequential builder with strict RED/GREEN tests and separate
+read-only specification and quality reviewers. Review findings were repaired through the
+same writer; both final reviews reported no remaining findings. The commander ran the
+focused suites and full repository suite independently.
+
+Recorded validation for the unchanged production and test files:
+
+- `python -m unittest tests.test_builder_rolling_state -v`: 44 tests run, 43 passed,
+  one Windows symlink-privilege skip; 132.568 seconds in the implementation closeout.
+  The pre-commit repeat on 2026-09-04 returned the same result in 38.003 seconds.
+- `python -m unittest tests.test_builder_rolling_models tests.test_builder_rolling_scheduler -v`:
+  41 passed.
+- `python -m unittest tests.test_builder_models tests.test_builder_state -v`: 50 passed.
+- `python -m unittest discover -s tests -v`: 540 tests run, 535 passed, five skipped;
+  2,020.754 seconds, exit 0. Four skips were POSIX-only checks and one required Windows
+  symlink privileges. These are fixture-based tests, not live model benchmarks.
+- `python scripts/check_repo_harness.py --profile docs --format human`: 8/8 passed.
+- Compilation, tracked-file whitespace checks, and new-file whitespace inspection passed.
+  `cli.py` and `__init__.py` contain no rolling-state imports or runtime routes.
+
+The earlier audit wrapper's final receipt was lost at a tool-output truncation boundary;
+its outcome is unconfirmed. The direct full-suite result above is the retained evidence,
+not a claim that the audit profile passed. The harness has a 900-second per-check limit;
+the measured full-suite runtime exceeded it. The installed Aegis package did not contain
+`aegis-workspace.py`, so no helper-backed workspace-integrity pass is claimed.
+
+Git blob identities checked again before commit preparation:
+
+- `plugins/compass-builder/compass_builder/rolling_state.py`:
+  `8c4db765bad2be72df5a462aa5676925e40486fb`.
+- `tests/test_builder_rolling_state.py`:
+  `e95705215a6e7e16e7c9b6088f6af7ac6a27b307`.
+
+To resume, read repository authority, this plan, Workstream G in `feature_planning.md`,
+the current Git state, and the commit containing this handoff. Begin with a read-only
+pre-G3B architecture review. Review extraction of OS-specific atomic exchange and directory
+durability from transition/history folding, and propose exact file ownership and tests.
+The source and test exceed the 800-line soft signal (1,014 and 1,140 physical lines), so
+this review must precede further growth or G3B implementation approval.
+
+Residual validation limits: Linux-specific rename and directory-sync paths were reviewed
+but not executed on this Windows host; other POSIX platforms fail closed. Rare partial
+Windows `ReplaceFileW` error outcomes were not injected. Actual symlink creation needs a
+privileged Windows test host or suitable non-Windows coverage. Local validation used
+Python 3.14.6; the configured Windows CI job uses Python 3.11 and must be checked against
+the pushed commit. Installed plugin copies have not been updated by G3A.
+
+The commander remains the sole planning, authorization, acceptance, and integration
+authority. Substantial implementation uses one delegated builder at a time unless safe
+parallel scopes are separately approved. Read-only reviewers have distinct responsibilities
+and no product-level numerical cap; runtime capacity may require successive waves. Keep
+F5 future work separate. G3B, installation, process launch, gate execution, and live or paid
+benchmarks are not authorized by this handoff.

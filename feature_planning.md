@@ -1055,17 +1055,17 @@ Compass does not invoke agents. Codex remains the authorizer/invoker and Compass
 remains the sole scheduler, durable-state owner, verifier, integrator, and recovery
 authority.
 
-F5A and F5B are separate workstreams and must not be combined atomically. The active G2
-slice remains untouched. No F5 source, schema, test, fixture, installation, scanner run,
+F5A and F5B are separate workstreams and must not be combined atomically. The delivered G3A
+slice remains separate. No F5 source, schema, test, fixture, installation, scanner run,
 commit, push, or publication is authorized by this planning entry.
 
 ## Workstream G: rolling dependency pipeline
 
-Status: G0 planning and G1 contracts are delivered; G2 pure scheduling is the currently
-authorized slice. The detailed implementation plan is
-`docs/aegis/plans/2026-09-02-rolling-dependency-pipeline.md`. G3 and later runtime work are
-not authorized. The frozen F1/D1 plan and all G1/v1 schemas, validators, fixtures, public
-bytes, behavior, and runtime modules remain untouched.
+Status: G0 planning, G1 contracts, G2 pure scheduling, and G3A durable dispatch state are
+delivered. The detailed implementation plan and G3A verification/session handoff are in
+`docs/aegis/plans/2026-09-02-rolling-dependency-pipeline.md`. G3B live same-frontier control
+and later runtime work are not authorized. The frozen F1/D1 plan and all G1/G2/v1 schemas,
+validators, fixtures, public bytes, behavior, and runtime modules remain untouched.
 
 ### 1. Current wave-barrier evidence
 
@@ -1121,6 +1121,13 @@ Add a distinct contract family:
 
 Use dedicated `rolling_scheduler.py`, `rolling_state.py`, and `rolling_controller.py`
 owners. Keep v1 modules unchanged except for narrow version routing after approval.
+The delivered G3A `rolling_state.py` is about 1,014 physical / 951 nonblank lines and its
+focused test owner is about 1,140 / 1,018 after reviewed CAS, reparse, evidence-durability, and
+history-reconstruction hardening. Both are governed overruns of the 800-line soft signal,
+not clean complexity closure. Before G3B is authorized, perform an explicit
+extraction/ownership review of the OS-specific persistence primitives versus
+transition/history folding and their test organization; do not add live-controller
+responsibility merely because each remains below the 1,200-line hard stop.
 
 Plugin Compass may recommend sequential/parallel and wave-barrier/rolling. It never
 executes, owns state, or makes completion decisions. Compass Builder remains the only
@@ -1151,8 +1158,10 @@ verified integration SHA as the proposed worker start SHA, prerequisite evidence
 canonical input/policy digests; it does not claim durable recording or side effects.
 
 The initial calibrated ceiling remains two. Rolling never means unbounded worker creation.
-A scheduler `dispatch` is only an eligibility proposal. Immediately before side effects,
-the future controller must revalidate trusted Workstream D3 authorization, live clone
+A scheduler `dispatch` is only an eligibility proposal. G3A may durably bind an already
+validated exact G1 dispatch record and transition state before launch, but it neither
+creates a clone nor launches a process. Immediately before those future G3B side effects,
+the live controller must revalidate trusted Workstream D3 authorization, live clone
 identity, the current integration SHA, and exact dispatch-record bindings. None of those
 controller-only facts is claimed as present in the G2 scheduler output.
 
@@ -1226,17 +1235,19 @@ state into v1; untouched v1 remains the production fallback.
 
 - G0 — baseline/architecture documentation: 2–4 hours. Stop with no source change.
 - G1 — closed v2 contracts and validators: 6–10 hours. Stop runtime v1-only.
-- G2 — pure deterministic scheduler: 6–10 hours. Stop with no side effects.
-- G3 — same-frontier refill at ceiling two: 8–14 hours. No dependency unlock.
+- G2 — pure deterministic scheduler: 6–10 hours; delivered. Stop with no side effects.
+- G3A — durable dispatch/completion foundation: 4–6 hours; delivered. Stop unreachable from the
+  production CLI with no worker launch, verification, import, integration, or unlock.
+- G3B — live same-frontier controller/refill: 4–8 hours after G3A. No dependency unlock.
 - G4 — per-completion verification/import: 8–14 hours. Requires D enforcement.
 - G5 — serial early integration/dependency unlock: 12–20 hours.
 - G6 — idempotent recovery/draining: 10–16 hours; cancellation is optional sub-slice.
 - G7 — native telemetry/three-arm benchmark: 8–16 engineering hours plus separately
   authorized live time. `auto` remains disabled.
 
-Dependency order is G1→G2→G3→G4→G5→G6→G7. Workstream F is independent. G4 waits for
-Workstream D gate enforcement; G7 waits for Workstream E telemetry. Do not combine G with
-Ponytail, brand, environment-sync, or standalone-skill implementation.
+Dependency order is G1→G2→G3A→G3B→G4→G5→G6→G7. Workstream F is independent. G4 waits
+for Workstream D gate enforcement; G7 waits for Workstream E telemetry. Do not combine G
+with Ponytail, brand, environment-sync, or standalone-skill implementation.
 
 The supplied slice ranges total 60–104 engineering hours, not 52–90. Re-estimate after
 G0 review; do not treat either range as a commitment.
@@ -1258,8 +1269,10 @@ Recommended defaults requiring ratification at their owning slice:
 
 ### 14. Required user approvals
 
-G2 is approved only for the pure scheduler, its focused test, and planning reconciliation.
-Separate approval is required for G3 or any pipeline source/schema/test/fixture edit beyond
-that four-path packet, gate-command execution, active cancellation, live/paid model
-benchmarks, installation, hooks, cache mutation, commit, push, publication, or cleanup.
-Stop after focused G2 verification and review.
+G3A is approved only for `rolling_state.py`, its focused test, and these two planning
+documents. The user approved review, commit, and push of that packet on 2026-09-04.
+Separate approval is required for G3B or any pipeline source/schema/test/fixture edit
+beyond that four-path packet, process launch, gate-command execution, active cancellation,
+live/paid model benchmarks, installation, hooks, cache mutation, publication, cleanup, or
+other commits/pushes. Next: read-only pre-G3B extraction/ownership review before seeking
+approval for the next implementation slice.
