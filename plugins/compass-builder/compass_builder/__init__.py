@@ -7,12 +7,18 @@ from .models import (
     run_binding_digest,
     validate_benchmark_aggregate,
     validate_benchmark_aggregate_receipts,
+    validate_benchmark_attempt_usage,
+    validate_benchmark_attempt_usage_schema_semantics,
+    validate_benchmark_attempt_usage_with_schema,
     validate_benchmark_pair,
     validate_benchmark_receipt,
     validate_benchmark_workloads,
+    validate_benchmark_token_report,
     validate_contract,
     validate_host_capabilities,
     validate_host_capabilities_at,
+    validate_outcome_gate_ledger,
+    validate_retry_evidence,
     validate_run_spec,
     validate_run_bindings,
     validate_run_structure_bindings,
@@ -20,18 +26,54 @@ from .models import (
     validate_run_state,
     validate_wave_plan,
     validate_worker_receipt,
+    validate_worker_usage_schema_semantics,
+    validate_worker_usage,
+    validate_worker_usage_with_schema,
+)
+from .usage import (
+    MAX_USAGE_STREAM_BYTES, MAX_USAGE_STREAM_LINES,
+    build_unavailable_worker_usage, parse_worker_usage,
 )
 from .lease import LeaseError, LeaseHandle, acquire_lease, inspect_lease, release_lease
 from .cleanup import CleanupError, cleanup_run
 from .benchmark import ComparisonError, compare, validate_event_ledger
 from .benchmark_runner import BenchmarkRunnerError, run_benchmark
+from .benchmark_usage import (
+    build_benchmark_attempt_usage, build_benchmark_token_report,
+    validate_benchmark_token_report_bindings,
+)
 from .controller import ControllerError, ControllerResult, execute_run
 from .integrator import IntegrationError, IntegrationResult, integrate_verified_branch
 from .state import (
     RepositoryIdentity, StateError, StateStore, build_execution_bundle,
-    load_run_bundle, load_run_inputs, resolve_repository, validate_execution_bundle,
+    build_gated_execution_bundle, load_run_bundle, load_run_inputs,
+    resolve_repository, validate_execution_bundle,
 )
 from .verifier import VerificationError, VerifiedWorker, verify_worker
+from .gate_runner import (
+    APPROVAL_SCHEMA_VERSION,
+    DIRECT_SHELL_IDENTITY,
+    RESULT_SCHEMA_VERSION,
+    GateExecutionResult,
+    GateRunnerError,
+    current_platform_identity,
+    digest_file,
+    environment_digest,
+    render_direct_command,
+    run_approved_gates,
+    validate_gate_approval,
+)
+from .gate_approval import (
+    ApprovalBoundaryError,
+    ApprovalDecisionProvider,
+    TrustedGateApproval,
+    issue_trusted_gate_approval,
+)
+from .gate_enforcement import (
+    GateEnforcementError, GateEnforcementOutcome, OperatorGateProvider,
+    enforce_scope_gates, require_gate_evidence_coverage,
+)
+from .gate_evidence import GateEvidenceFold, GateEvidenceJournal, fold_gate_evidence
 
 __all__ = [
     "ContractValidationError",
@@ -47,11 +89,27 @@ __all__ = [
     "validate_run_state",
     "validate_host_capabilities",
     "validate_host_capabilities_at",
+    "validate_outcome_gate_ledger",
+    "validate_retry_evidence",
     "validate_worker_receipt",
+    "validate_worker_usage_schema_semantics",
+    "validate_worker_usage",
+    "validate_worker_usage_with_schema",
+    "MAX_USAGE_STREAM_BYTES",
+    "MAX_USAGE_STREAM_LINES",
+    "build_unavailable_worker_usage",
+    "parse_worker_usage",
     "validate_benchmark_receipt",
     "validate_benchmark_workloads",
     "validate_benchmark_aggregate",
     "validate_benchmark_aggregate_receipts",
+    "validate_benchmark_attempt_usage",
+    "validate_benchmark_attempt_usage_schema_semantics",
+    "validate_benchmark_attempt_usage_with_schema",
+    "validate_benchmark_token_report",
+    "validate_benchmark_token_report_bindings",
+    "build_benchmark_attempt_usage",
+    "build_benchmark_token_report",
     "validate_benchmark_pair",
     "LeaseError",
     "LeaseHandle",
@@ -78,8 +136,32 @@ __all__ = [
     "StateError",
     "StateStore",
     "build_execution_bundle",
+    "build_gated_execution_bundle",
     "load_run_bundle",
     "load_run_inputs",
     "resolve_repository",
     "validate_execution_bundle",
+    "APPROVAL_SCHEMA_VERSION",
+    "DIRECT_SHELL_IDENTITY",
+    "RESULT_SCHEMA_VERSION",
+    "GateExecutionResult",
+    "GateRunnerError",
+    "current_platform_identity",
+    "digest_file",
+    "environment_digest",
+    "render_direct_command",
+    "run_approved_gates",
+    "validate_gate_approval",
+    "ApprovalBoundaryError",
+    "ApprovalDecisionProvider",
+    "TrustedGateApproval",
+    "issue_trusted_gate_approval",
+    "GateEnforcementError",
+    "GateEnforcementOutcome",
+    "OperatorGateProvider",
+    "enforce_scope_gates",
+    "require_gate_evidence_coverage",
+    "GateEvidenceFold",
+    "GateEvidenceJournal",
+    "fold_gate_evidence",
 ]

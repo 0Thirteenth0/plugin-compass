@@ -15,11 +15,17 @@ outputs and bounded local metadata without importing or executing third-party pl
 - `adapters/codex.py` — invoke `codex plugin list --json` without a shell or parse a fixture.
 - `adapters/drskill.py` — parse DrSkill JSONL or explicitly invoke the static Codex scan.
 - `adapters/hol.py` — parse target-specific HOL JSON reports.
+- `adapters/standalone.py` — inspect only explicitly configured, bounded standalone-skill
+  roots and return source-neutral records plus degraded diagnostics.
 - `metadata.py` — bounded `.codex-plugin/plugin.json` and `SKILL.md` frontmatter reads.
 - `readiness.py` — bounded existence checks for explicit plugin-root file references;
   no imports, execution, dependency resolution, cache inference, or trust verdict.
 - `repository.py` — applicable authority files and bounded repository context only.
 - `decision.py` — finding triage, relevance, overlap winner, minimal-set planning, and conditional exact-skill routing.
+- `skill_models.py` — immutable source-neutral skill, assessment, ambiguity,
+  recommendation, and discovery-summary contracts.
+- `skill_decision.py` — deterministic mixed-source skill eligibility, exact identity
+  resolution, ambiguity handling, and bounded minimum-cardinality coverage.
 - `scheduling.py` — speed-first advisory effort rubric; no dispatch, model mutation, or telemetry.
 - `handoff.py` — pure agent-task validation and native dispatch-argument proposals; no
   authority, tool calls, result acceptance, or persistent scheduler state.
@@ -45,6 +51,33 @@ claim the CLI's internal cause. Codex may request one approved read-only listing
 the sandbox and provide its output through the existing `--inventory-file` path. The
 adapter never escalates, retries, or scans caches. Explicit snapshots, including empty
 ones, retain their supplied-data semantics. Other errors remain exit `2`.
+
+Codex does not currently expose an official standalone-skill enumeration through the
+authoritative plugin listing. Standalone discovery therefore accepts only explicit
+caller-supplied user, project, and system root identities and paths. It does not derive
+roots from a username, home directory, environment variable, plugin cache, or directory
+crawl. Missing optional roots degrade only the standalone inventory. A root reparse
+point, symlink, junction, path escape, oversized document, invalid UTF-8, incomplete,
+duplicate-key or otherwise malformed frontmatter, limit, or timeout produces a bounded
+diagnostic and no execution. Incomplete records preserve `partial` metadata provenance but
+are excluded from automatic and exact recommendation eligibility. Skill files are opened
+only as bounded read-only bytes; their bodies remain inert text and the adapter has no
+write, install, copy, synchronization, or invocation path.
+
+The frontmatter parser intentionally does not implement YAML. Its strict subset accepts
+only flat simple keys and string scalars, with blank lines and whole-line comments. Keys
+are canonicalized before duplicate detection. An empty value is an empty string. An
+unquoted nonempty string starts with a Unicode letter, digit, or underscore; contains no
+colon, hash, or square/curly bracket; and is not a null, boolean, numeric, or ISO-like
+`YYYY-M-D` date/time token. Other strings require matching single or double outer quotes
+with no matching quote inside. This rejects inline comments, mapping/sexagesimal colon
+syntax, collection delimiters, reserved leading indicators, block/tag/alias values, and
+indentation. Bounded metadata reads and readiness probes use read-only descriptors,
+no-follow flags when the host exposes them, named/opened device-and-inode comparison,
+regular-file checks, and current-containment validation after open and immediately before
+the first byte read, plus post-read/use revalidation. If a host cannot
+establish stable identity or a path changes during the check, the result is rejected or
+unknown rather than consumed.
 
 ### DrSkill 0.7.x
 
@@ -74,18 +107,20 @@ HOL output is not replaced by DrSkill severity.
 ## Data Flow
 
 1. Load Codex inventory JSON or run the official listing command.
-2. Resolve only declared local roots and shallow plugin/skill metadata.
-3. Load optional DrSkill JSONL and HOL JSON evidence.
-4. Inspect applicable repository authority and bounded context.
-5. Normalize records and preserve original provenance.
-6. Apply hard gates, then finding triage, relevance, and overlap-winner rules.
-7. Select the minimal eligible capability set for the supplied task.
-8. Independently select any applicable exact-skill invocation route without changing the parent plugin's assessment.
-9. Exclude capabilities with unresolved explicit local runtime references while keeping
+2. Resolve only declared plugin roots and shallow packaged-skill metadata.
+3. Separately inspect any explicitly configured bounded standalone-skill roots.
+4. Load optional DrSkill JSONL and HOL JSON evidence.
+5. Inspect applicable repository authority and bounded context.
+6. Normalize records and preserve original provenance.
+7. Apply hard gates, then finding triage, relevance, and overlap-winner rules.
+8. Assess packaged and standalone skills as source-neutral records, preserve qualified
+   collisions, and select an exact bounded minimum-cardinality cover.
+9. Independently select any applicable exact-skill invocation route without changing the parent plugin's assessment.
+10. Exclude capabilities with unresolved explicit local runtime references while keeping
    healthy sibling capabilities eligible.
-10. Optionally convert one authorized, caller-assessed subtask into proposal-only native
+11. Optionally convert one authorized, caller-assessed subtask into proposal-only native
     dispatch arguments with validation and retry gates.
-11. Sort every public collection before rendering JSON, Markdown, or the prompt.
+12. Sort every public collection before rendering JSON, Markdown, or the prompt.
 
 ## Models
 
@@ -96,6 +131,16 @@ separate state and rationale; it never overwrites the source finding.
 `PluginRecord` stores identity, availability, local source, capability metadata,
 execution surfaces, and evidence references. It does not carry scanner-specific booleans.
 
+`SkillRecord` is source-neutral and retains a qualified identity, source kind, source
+identity, path, metadata status, trust state, readiness, and evidence. A standalone skill
+is never inserted into `PluginRecord`. `StandaloneDiscoverySummary` is immutable and
+closed; raw mappings cannot enter a recommendation plan.
+
+`SkillRecord` accepts only the six documented exact trust values; recommendation
+eligibility is the narrower `not_assessed`/`trusted` allowlist. `SkillAssessment` validates
+the exact four emitted dimension fields, stores them behind an immutable mapping, and
+serializes a fresh ordinary dictionary; the public schema repeats that closed shape.
+
 `Assessment` keeps descriptive dimensions and hard gates. `RecommendationPlan` is the
 single canonical object rendered into all output formats.
 
@@ -105,8 +150,13 @@ plugin recommendation. The initial conditional route targets the exact installed
 enabled `claude-code-skills:llm-cost-optimizer` capability only for explicit cost mode.
 Its parent plugin may remain hard-gated and excluded from the minimal set.
 
-Plan v3 and prompt v2 expose typed `optimization_goal` (default `speed`) and nullable
+Plan v5, inventory v3, and prompt v3 add the source-neutral skill collections and
+standalone-discovery summary while retaining legacy plugin collections. Plan v5 and
+prompt v3 expose typed `optimization_goal` (default `speed`) and nullable
 `SchedulingGuidance`. Speed mode does not use text keyword matches to infer a cost goal.
+The three public JSON Schemas are closed and are checked against runtime payload/model
+keys. Standalone discovery cannot modify the packaged-skill projection or any plugin-keyed
+compatibility field.
 For relevant tasks, the rubric supplies per-agent decision fields, model-preservation
 rules, effort bands, acceptance gates, and bounded escalation. It does not itself
 classify subagent tasks or enforce dispatch settings. That requires the invoking
@@ -158,6 +208,11 @@ but Plugin Compass never enables them.
 - JSONL input order does not affect output ordering.
 - Records, findings, evidence, overlap members, recommendations, and keys use stable sorts.
 - Invocation routes use stable IDs and capability-name ordering.
+- Skill ranking uses fully qualified source identities and total deterministic tie-breaks;
+  platform path comparison follows the target platform rather than a global case fold.
+- Automatic skill selection uses an exact minimum-cardinality cover after deterministic
+  identical-coverage reduction. It refuses automatic approximation beyond its bounded
+  candidate/state limits and directs the caller to exact `--select-skill` identities.
 - Stable IDs derive only from normalized source fields.
 - Tool versions and report timestamps may be reported but do not influence ranking unless
   the contract explicitly marks evidence stale.

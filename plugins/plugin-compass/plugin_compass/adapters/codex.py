@@ -15,7 +15,7 @@ class CodexInventoryError(RuntimeError):
 
 
 class CodexInventoryInconclusive(CodexInventoryError):
-    """A live empty response cannot establish that the user has no plugins."""
+    """An empty authoritative response cannot establish that the user has no plugins."""
 
     code = "CODEX_INVENTORY_EMPTY"
     recovery = (
@@ -26,9 +26,10 @@ class CodexInventoryInconclusive(CodexInventoryError):
         "plugin caches or run plugin management commands."
     )
 
-    def __init__(self) -> None:
+    def __init__(self, source: str = "command:codex plugin list --json") -> None:
+        self.source = source
         super().__init__(
-            "The live Codex CLI returned an empty inventory. This may reflect an "
+            "The authoritative Codex inventory returned no entries. This may reflect an "
             "empty installation or restricted discovery; it is not proof that no "
             "plugins are installed."
         )
@@ -38,7 +39,7 @@ class CodexInventoryInconclusive(CodexInventoryError):
             "schema_version": "plugin-compass.diagnostic.v1",
             "status": "inconclusive",
             "code": self.code,
-            "source": "command:codex plugin list --json",
+            "source": self.source,
             "message": str(self),
             "recovery": self.recovery,
         }
@@ -60,6 +61,11 @@ def _parse_payload(text: str, source: str) -> dict[str, Any]:
     return payload
 
 
+def _require_conclusive_inventory(payload: dict[str, Any], source: str) -> None:
+    if not payload.get("installed") and not payload.get("available"):
+        raise CodexInventoryInconclusive(source)
+
+
 def load_inventory_file(path: Path) -> tuple[dict[str, Any], EvidenceRecord]:
     resolved = path.expanduser().resolve(strict=False)
     try:
@@ -67,6 +73,7 @@ def load_inventory_file(path: Path) -> tuple[dict[str, Any], EvidenceRecord]:
     except OSError as exc:
         raise CodexInventoryError(f"Unable to read Codex inventory file: {resolved}") from exc
     payload = _parse_payload(text, str(resolved))
+    _require_conclusive_inventory(payload, str(resolved))
     evidence = EvidenceRecord.create(
         "codex-inventory",
         str(resolved),
@@ -94,8 +101,7 @@ def run_inventory(*, timeout_seconds: float = 20.0) -> tuple[dict[str, Any], Evi
             f"'codex plugin list --json' exited {completed.returncode}: {stderr[:300]}"
         )
     payload = _parse_payload(completed.stdout, "codex plugin list --json")
-    if not payload.get("installed") and not payload.get("available"):
-        raise CodexInventoryInconclusive()
+    _require_conclusive_inventory(payload, "command:codex plugin list --json")
     evidence = EvidenceRecord.create(
         "codex-inventory",
         "command:codex plugin list --json",

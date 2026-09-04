@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import json
-from typing import Iterable
+from typing import TYPE_CHECKING, Iterable, Mapping
 
 from .models import (
     Assessment, InvocationRoute, Recommendation, RecommendationPlan, SchedulingGuidance,
 )
+
+if TYPE_CHECKING:
+    from .skill_models import SkillAmbiguity, SkillRecommendation
 
 
 def render_json(value: object) -> str:
@@ -23,6 +26,9 @@ def build_session_prompt(
     invocation_routes: Iterable[InvocationRoute] = (),
     scheduling_guidance: SchedulingGuidance | None = None,
     *,
+    skill_recommendations: Iterable["SkillRecommendation"] = (),
+    skill_ambiguities: Iterable["SkillAmbiguity"] = (),
+    discovery_diagnostics: Iterable[Mapping[str, object]] = (),
     readiness_notes: Iterable[str] = (),
 ) -> str:
     selected = tuple(sorted(recommendations, key=lambda item: item.plugin_id.casefold()))
@@ -42,6 +48,24 @@ def build_session_prompt(
             key=lambda item: item.plugin_id.casefold(),
         )
     )
+    selected_skills = tuple(sorted(
+        skill_recommendations,
+        key=lambda item: (
+            item.qualified_identity.casefold(), item.qualified_identity,
+        ),
+    ))
+    ambiguities = tuple(sorted(
+        skill_ambiguities, key=lambda item: (item.name.casefold(), item.candidates),
+    ))
+    diagnostics = tuple(sorted(
+        discovery_diagnostics,
+        key=lambda item: (
+            str(item.get("code", "")).casefold(),
+            str(item.get("source_type", "")).casefold(),
+            str(item.get("source_identity", "")).casefold(),
+            str(item.get("path", "")).casefold(),
+        ),
+    ))
     lines = [
         f"Task: {task.strip() or 'No task was supplied.'}",
         "",
@@ -53,6 +77,29 @@ def build_session_prompt(
             lines.append(f"- {item.plugin_id}: {capabilities}. {item.rationale}")
     else:
         lines.append("- No additional plugin is selected for this task.")
+    if selected_skills:
+        lines.extend(["", "Use these exact qualified skills (selection only; do not auto-execute):"])
+        for item in selected_skills:
+            skill = item.skill
+            lines.append(
+                f"- {item.qualified_identity}: source={skill.source_type}/"
+                f"{skill.source_identity}; trust={skill.trust_status}; "
+                f"metadata={skill.metadata_status}; readiness={skill.readiness.status}. "
+                f"{item.rationale}"
+            )
+    if ambiguities:
+        lines.extend(["", "Unresolved skill-name ambiguities (select none):"])
+        for item in ambiguities:
+            lines.append(
+                f"- {item.name}: {', '.join(item.candidates)}. {item.rationale}"
+            )
+    if diagnostics:
+        lines.extend(["", "Standalone discovery diagnostics:"])
+        for item in diagnostics:
+            lines.append(
+                f"- {item.get('code', 'unknown')}: {item.get('source_type', 'unknown')}/"
+                f"{item.get('source_identity', 'unknown')}. {item.get('detail', '')}"
+            )
     if routes:
         lines.extend(["", "Skill invocation routing:"])
         for item in routes:
@@ -119,6 +166,45 @@ def render_markdown(plan: RecommendationPlan) -> str:
             lines.append(f"- **{item.plugin_id}** - {capabilities}. {item.rationale}")
     else:
         lines.append("- No additional plugin is selected for this task.")
+
+    lines.extend(["", "## Source-neutral skill selection", ""])
+    if plan.skill_recommendations:
+        for item in plan.skill_recommendations:
+            lines.append(
+                f"- **{item.qualified_identity}** - {item.rationale} "
+                f"Trust={item.skill.trust_status}; metadata={item.skill.metadata_status}; "
+                f"readiness={item.skill.readiness.status}."
+            )
+    else:
+        lines.append("- No unambiguous eligible skill is selected for this task.")
+    if plan.skill_ambiguities:
+        lines.extend(["", "### Unresolved skill-name ambiguities", ""])
+        for item in plan.skill_ambiguities:
+            lines.append(
+                f"- **{item.name}** - candidates: {', '.join(item.candidates)}. "
+                f"{item.rationale}"
+            )
+
+    lines.extend(["", "## Source-neutral skill assessments", ""])
+    if plan.skill_assessments:
+        for item in plan.skill_assessments:
+            skill = item.skill
+            lines.append(
+                f"- **{item.qualified_identity}** - {item.classification}; "
+                f"source={skill.source_type}/{skill.source_identity}; "
+                f"trust={skill.trust_status}; metadata={skill.metadata_status}; "
+                f"readiness={skill.readiness.status}."
+            )
+    else:
+        lines.append("- No skills were available for assessment.")
+
+    lines.extend(["", "## Standalone discovery", ""])
+    lines.append(f"- Status: {plan.standalone_discovery.status}.")
+    for diagnostic in plan.standalone_discovery.diagnostics:
+        lines.append(
+            f"- `{diagnostic.code}` - {diagnostic.source_type}/"
+            f"{diagnostic.source_identity}: {diagnostic.detail}"
+        )
 
     lines.extend(["", "## Conditional invocation routes", ""])
     if plan.invocation_routes:

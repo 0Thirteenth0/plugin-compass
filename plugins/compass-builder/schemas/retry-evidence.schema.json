@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openai.local/compass-builder/retry-evidence.schema.json",
+  "title": "Compass Builder retry evidence v1",
+  "description": "Controller-journaled authority for the sole higher-reasoning worker retry.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "runId", "storyId", "attempt", "source", "kind",
+    "evidenceDigest", "previousLaunchDigest"
+  ],
+  "properties": {
+    "schemaVersion": {"const": "compass-builder.retry-evidence.v1"},
+    "runId": {"$ref": "#/$defs/runId"},
+    "storyId": {"$ref": "#/$defs/id"},
+    "attempt": {"const": 2},
+    "source": {"enum": ["controller", "worker"]},
+    "kind": {
+      "enum": [
+        "reasoning", "startup", "model", "config", "tool", "permission",
+        "missing-input", "validation", "other"
+      ]
+    },
+    "evidenceDigest": {"$ref": "#/$defs/digest"},
+    "previousLaunchDigest": {"$ref": "#/$defs/digest"}
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}(?![\\s\\S])"
+    },
+    "runId": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{1,31}-[0-9a-f]{16,64}(?![\\s\\S])",
+      "maxLength": 97
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,63}(?![\\s\\S])",
+      "maxLength": 64
+    }
+  }
+}

@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://plugin-compass.local/schemas/prompt.schema.json",
+  "title": "Plugin Compass Prompt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "task", "optimization_goal", "generated_prompt", "recommendations",
+    "invocation_routes", "scheduling_guidance", "skills", "standalone_discovery",
+    "skill_assessments", "skill_ambiguities", "skill_recommendations"
+  ],
+  "properties": {
+    "schema_version": { "const": "plugin-compass.prompt.v3" },
+    "task": { "type": "string" },
+    "optimization_goal": { "enum": ["speed", "cost"] },
+    "generated_prompt": { "type": "string" },
+    "recommendations": {
+      "type": "array",
+      "items": { "$ref": "recommendation-plan.schema.json#/$defs/recommendation" }
+    },
+    "invocation_routes": {
+      "type": "array",
+      "items": { "$ref": "recommendation-plan.schema.json#/$defs/invocationRoute" }
+    },
+    "scheduling_guidance": {
+      "anyOf": [
+        { "$ref": "recommendation-plan.schema.json#/$defs/schedulingGuidance" },
+        { "type": "null" }
+      ]
+    },
+    "skills": {
+      "type": "array",
+      "items": { "$ref": "recommendation-plan.schema.json#/$defs/skill" }
+    },
+    "standalone_discovery": {
+      "$ref": "recommendation-plan.schema.json#/$defs/standaloneDiscovery"
+    },
+    "skill_assessments": {
+      "type": "array",
+      "items": { "$ref": "recommendation-plan.schema.json#/$defs/skillAssessment" }
+    },
+    "skill_ambiguities": {
+      "type": "array",
+      "items": { "$ref": "recommendation-plan.schema.json#/$defs/skillAmbiguity" }
+    },
+    "skill_recommendations": {
+      "type": "array",
+      "items": { "$ref": "recommendation-plan.schema.json#/$defs/skillRecommendation" }
+    }
+  }
+}

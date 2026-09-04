@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openai.local/compass-builder/plan-bundle.v2.schema.json",
+  "title": "Compass Builder opt-in gated execution plan bundle v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "runSpec", "wavePlan", "hostCapabilities", "planningTimestamp", "repositoryIdentity", "outcomeGateLedger"],
+  "properties": {
+    "schemaVersion": {"const": "compass-builder.plan-bundle.v2"},
+    "runSpec": {"$ref": "run-spec.schema.json"},
+    "wavePlan": {"$ref": "wave-plan.schema.json"},
+    "hostCapabilities": {"$ref": "host-capabilities.schema.json"},
+    "planningTimestamp": {"type": "string", "format": "date-time", "maxLength": 64},
+    "repositoryIdentity": {"$ref": "plan-bundle.schema.json#/properties/repositoryIdentity"},
+    "outcomeGateLedger": {"$ref": "outcome-gate-ledger.schema.json"}
+  }
+}

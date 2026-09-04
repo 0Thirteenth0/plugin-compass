@@ -11,6 +11,11 @@
     "scheduling_guidance",
     "repository",
     "plugins",
+    "skills",
+    "standalone_discovery",
+    "skill_assessments",
+    "skill_ambiguities",
+    "skill_recommendations",
     "findings",
     "triage",
     "assessments",
@@ -21,7 +26,7 @@
     "evidence"
   ],
   "properties": {
-    "schema_version": { "const": "plugin-compass.plan.v3" },
+    "schema_version": { "const": "plugin-compass.plan.v5" },
     "task": { "type": "string" },
     "optimization_goal": { "enum": ["speed", "cost"] },
     "scheduling_guidance": {
@@ -31,6 +36,23 @@
     "plugins": {
       "type": "array",
       "items": { "$ref": "#/$defs/plugin" }
+    },
+    "skills": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/skill" }
+    },
+    "standalone_discovery": { "$ref": "#/$defs/standaloneDiscovery" },
+    "skill_assessments": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/skillAssessment" }
+    },
+    "skill_ambiguities": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/skillAmbiguity" }
+    },
+    "skill_recommendations": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/skillRecommendation" }
     },
     "findings": {
       "type": "array",
@@ -131,6 +153,189 @@
             "references": {"$ref": "#/$defs/stringArray"}
           }
         }
+      }
+    },
+    "skill": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id", "qualified_identity", "name", "description", "path", "relative_path", "source",
+        "trust_status", "metadata_status", "readiness", "evidence_refs"
+      ],
+      "properties": {
+        "id": { "type": "string", "pattern": "^skill-[0-9a-f]{16}$" },
+        "qualified_identity": { "type": "string", "pattern": "^skill://" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "path": { "type": "string" },
+        "relative_path": {
+          "type": "string",
+          "pattern": "^(?!/)(?![A-Za-z]:)(?!.*(?:^|/)\\.\\.(?:/|$)).+"
+        },
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "identity"],
+          "properties": {
+            "type": {
+              "enum": [
+                "plugin", "standalone-user", "standalone-project", "system", "session-only"
+              ]
+            },
+            "identity": { "type": "string", "minLength": 1 }
+          }
+        },
+        "trust_status": {
+          "enum": ["not_assessed", "trusted", "unknown", "untrusted", "blocked", "rejected"]
+        },
+        "metadata_status": { "type": "string" },
+        "readiness": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "root", "references"],
+          "properties": {
+            "status": {"enum": ["not_assessed", "not_declared", "files_present", "missing_files", "unknown"]},
+            "root": {"type": ["string", "null"]},
+            "references": {"$ref": "#/$defs/stringArray"}
+          }
+        },
+        "evidence_refs": { "$ref": "#/$defs/stringArray" }
+      }
+    },
+    "standaloneDiscovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "diagnostics"],
+      "properties": {
+        "status": { "enum": ["not_configured", "complete", "degraded"] },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["code", "source_type", "source_identity", "path", "detail"],
+            "properties": {
+              "code": { "type": "string" },
+              "source_type": { "type": "string" },
+              "source_identity": { "type": "string" },
+              "path": { "type": "string" },
+              "detail": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "skillAssessment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id", "qualified_identity", "name", "description", "path", "relative_path", "source",
+        "trust_status", "metadata_status", "readiness", "evidence_refs", "classification",
+        "dimensions", "hard_gates", "rationale"
+      ],
+      "properties": {
+        "id": { "type": "string", "pattern": "^skill-[0-9a-f]{16}$" },
+        "qualified_identity": { "type": "string", "pattern": "^skill://" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "path": { "type": "string" },
+        "relative_path": { "type": "string" },
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "identity"],
+          "properties": {
+            "type": { "enum": ["plugin", "standalone-user", "standalone-project", "system", "session-only"] },
+            "identity": { "type": "string", "minLength": 1 }
+          }
+        },
+        "trust_status": {
+          "enum": ["not_assessed", "trusted", "unknown", "untrusted", "blocked", "rejected"]
+        },
+        "metadata_status": { "type": "string" },
+        "readiness": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "root", "references"],
+          "properties": {
+            "status": { "enum": ["not_assessed", "not_declared", "files_present", "missing_files", "unknown"] },
+            "root": { "type": ["string", "null"] },
+            "references": { "$ref": "#/$defs/stringArray" }
+          }
+        },
+        "evidence_refs": { "$ref": "#/$defs/stringArray" },
+        "classification": {
+          "enum": ["Use now", "Useful on demand", "Redundant", "Irrelevant to this project", "Blocked or untrusted", "Unknown or insufficient evidence"]
+        },
+        "dimensions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "repository_and_task_relevance", "trust_and_security",
+            "metadata_completeness", "execution_readiness"
+          ],
+          "properties": {
+            "repository_and_task_relevance": { "type": "string" },
+            "trust_and_security": { "type": "string" },
+            "metadata_completeness": { "type": "string" },
+            "execution_readiness": { "type": "string" }
+          }
+        },
+        "hard_gates": { "$ref": "#/$defs/stringArray" },
+        "rationale": { "$ref": "#/$defs/stringArray" }
+      }
+    },
+    "skillAmbiguity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "candidates", "rationale"],
+      "properties": {
+        "name": { "type": "string" },
+        "candidates": { "$ref": "#/$defs/stringArray" },
+        "rationale": { "type": "string" }
+      }
+    },
+    "skillRecommendation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id", "qualified_identity", "name", "description", "path", "relative_path", "source",
+        "trust_status", "metadata_status", "readiness", "evidence_refs", "rationale",
+        "covered_terms"
+      ],
+      "properties": {
+        "id": { "type": "string", "pattern": "^skill-[0-9a-f]{16}$" },
+        "qualified_identity": { "type": "string", "pattern": "^skill://" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "path": { "type": "string" },
+        "relative_path": { "type": "string" },
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "identity"],
+          "properties": {
+            "type": { "enum": ["plugin", "standalone-user", "standalone-project", "system", "session-only"] },
+            "identity": { "type": "string", "minLength": 1 }
+          }
+        },
+        "trust_status": {
+          "enum": ["not_assessed", "trusted", "unknown", "untrusted", "blocked", "rejected"]
+        },
+        "metadata_status": { "type": "string" },
+        "readiness": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "root", "references"],
+          "properties": {
+            "status": { "enum": ["not_assessed", "not_declared", "files_present", "missing_files", "unknown"] },
+            "root": { "type": ["string", "null"] },
+            "references": { "$ref": "#/$defs/stringArray" }
+          }
+        },
+        "evidence_refs": { "$ref": "#/$defs/stringArray" },
+        "rationale": { "type": "string" },
+        "covered_terms": { "$ref": "#/$defs/stringArray" }
       }
     },
     "plugin": {

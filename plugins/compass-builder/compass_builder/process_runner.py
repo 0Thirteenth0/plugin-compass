@@ -138,6 +138,7 @@ def run_bounded(
     stdin: bytes | None = None,
     timeout: float = PROCESS_TIMEOUT_SECONDS,
     max_output_bytes: int = MAX_CAPTURE_BYTES,
+    terminate_process_group_on_parent_exit: bool = False,
 ) -> subprocess.CompletedProcess[bytes]:
     """Run argv without a shell while retaining at most ``max_output_bytes`` per pipe."""
 
@@ -245,6 +246,8 @@ def run_bounded(
         except subprocess.TimeoutExpired:
             termination_timed_out = True
     finally:
+        if terminate_process_group_on_parent_exit:
+            _terminate_tree(process, tree, include_exited_posix_parent=True)
         if tree is not None:
             tree.close()
         elif process.poll() is None:
@@ -287,11 +290,16 @@ def run_bounded(
     return subprocess.CompletedProcess(list(argv), process.returncode, stdout, stderr)
 
 
-def _terminate_tree(process: subprocess.Popen[bytes], tree: _WindowsJob | None) -> None:
+def _terminate_tree(
+    process: subprocess.Popen[bytes],
+    tree: _WindowsJob | None,
+    *,
+    include_exited_posix_parent: bool = False,
+) -> None:
     try:
         if tree is not None:
             tree.terminate()
-        elif process.poll() is None:
+        elif include_exited_posix_parent or process.poll() is None:
             os.killpg(process.pid, signal.SIGKILL)
     except OSError:
         try:
@@ -332,11 +340,13 @@ def run_bounded_text(
     stdin: str | None = None,
     timeout: float = PROCESS_TIMEOUT_SECONDS,
     max_output_bytes: int = MAX_CAPTURE_BYTES,
+    terminate_process_group_on_parent_exit: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     return completed_text(run_bounded(
         argv, cwd=cwd, environment=environment,
         stdin=None if stdin is None else stdin.encode("utf-8"), timeout=timeout,
         max_output_bytes=max_output_bytes,
+        terminate_process_group_on_parent_exit=terminate_process_group_on_parent_exit,
     ), max_output_bytes=max_output_bytes)
 
 

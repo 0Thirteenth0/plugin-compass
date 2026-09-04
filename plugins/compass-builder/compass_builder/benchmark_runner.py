@@ -11,11 +11,15 @@ import shutil
 import stat
 import subprocess
 import tempfile
+import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable, Mapping
 
-from .benchmark import GENESIS_HASH
+from .benchmark import ComparisonError, GENESIS_HASH, compare
+from .benchmark_usage import (
+    build_benchmark_attempt_usage, build_benchmark_token_report,
+)
 from .cleanup import cleanup_run
 from ._validation import canonical_data
 from .controller import (
@@ -28,6 +32,7 @@ from .models import (
     validate_benchmark_receipt, validate_benchmark_workloads,
 )
 from .state import StateStore, build_execution_bundle, validate_execution_bundle
+from .secure_files import write_new_no_follow
 
 
 RunExecutor = Callable[..., ControllerResult]
@@ -51,16 +56,18 @@ class EventLedger:
     def __init__(self) -> None:
         self.events: list[dict[str, object]] = []
         self.previous = GENESIS_HASH
+        self._lock = threading.Lock()
 
     def append(self, kind: str, details: Mapping[str, object]) -> dict[str, object]:
-        event = {
-            "sequence": len(self.events) + 1, "previousHash": self.previous,
-            "kind": kind, "details": copy.deepcopy(dict(details)),
-        }
-        event["eventHash"] = _digest(event)
-        self.events.append(event)
-        self.previous = str(event["eventHash"])
-        return event
+        with self._lock:
+            event = {
+                "sequence": len(self.events) + 1, "previousHash": self.previous,
+                "kind": kind, "details": copy.deepcopy(dict(details)),
+            }
+            event["eventHash"] = _digest(event)
+            self.events.append(event)
+            self.previous = str(event["eventHash"])
+            return event
 
 
 def _git(
@@ -193,6 +200,13 @@ def _write_json(path: Path, value: object) -> None:
     path.write_bytes(canonical_data(value))
 
 
+def _write_new_json(path: Path, value: object, root: Path) -> None:
+    write_new_no_follow(
+        path, canonical_data(value), root,
+        label="benchmark token telemetry artifact",
+    )
+
+
 def _remove_tree(path: Path, root: Path) -> None:
     target = Path(path).resolve(strict=False)
     boundary = Path(root).resolve(strict=True)
@@ -249,6 +263,7 @@ def run_benchmark(
     staging = Path(tempfile.mkdtemp(prefix=f".{output.name}-", dir=output.parent))
     ledger = EventLedger()
     receipts: list[dict[str, object]] = []
+    attempt_usage: list[dict[str, object]] = []
     try:
         for index, (arm, attempt_id, pair_number, warmup) in enumerate(_attempts(manifest)):
             first_sequence = len(ledger.events) + 1
@@ -260,9 +275,23 @@ def run_benchmark(
             clone_parent = staging / "repositories" / f"attempt-{index + 1}"
             clone_parent.mkdir(parents=True)
             repository = _clone_fixture(source, clone_parent / "repo", base_sha)
+            controller_events: list[tuple[str, Mapping[str, object]]] = []
+            sink_lock = threading.Lock()
 
             def sink(kind: str, details: Mapping[str, object]) -> None:
-                ledger.append(kind, {"attemptId": attempt_id, **dict(details)})
+                with sink_lock:
+                    if kind.startswith("_"):
+                        raise BenchmarkRunnerError(
+                            "benchmark executor exposed a private controller event"
+                        )
+                    if kind in {
+                        "worker-launch", "worker-completion", "worker-branch-import",
+                        "worker-usage",
+                    }:
+                        controller_events.append((kind, copy.deepcopy(dict(details))))
+                    if kind == "worker-usage":
+                        return
+                    ledger.append(kind, {"attemptId": attempt_id, **dict(details)})
 
             try:
                 bundle = build_execution_bundle(
@@ -320,6 +349,15 @@ def run_benchmark(
             })
             receipts.append(receipt)
             _write_json(staging / f"receipt-{index + 1:03d}.json", receipt)
+            usage = build_benchmark_attempt_usage(
+                receipt, controller_events,
+                expected_run_id=str(template["runSpec"]["runId"]),
+            )
+            attempt_usage.append(usage)
+            _write_new_json(
+                staging / f"attempt-usage-{index + 1:03d}.json",
+                usage, staging,
+            )
             _remove_tree(clone_parent, staging)
         _remove_tree(staging / "repositories", staging)
         workload_controls = [{"workloadId": workload_id, "controls": seq_controls}]
@@ -349,6 +387,21 @@ def run_benchmark(
         ])
         lines = b"".join(canonical_json(event) for event in ledger.events)
         (staging / "events.jsonl").write_bytes(lines)
+        _write_new_json(staging / "attempt-usage.json", attempt_usage, staging)
+        try:
+            comparison = compare(
+                [item for item in receipts if item["arm"] == "sequential"],
+                [item for item in receipts if item["arm"] == "parallel"],
+                sequential_events=ledger.events,
+                parallel_events=ledger.events,
+            )
+        except ComparisonError:
+            comparison = None
+        token_report = build_benchmark_token_report(
+            aggregate, receipts, attempt_usage,
+            benchmark_comparison=comparison,
+        )
+        _write_new_json(staging / "token-report.json", token_report, staging)
         os.rename(staging, output)
         return aggregate
     except BaseException:

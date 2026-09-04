@@ -16,9 +16,11 @@ from types import MappingProxyType
 from typing import Mapping, Sequence
 
 from .git_environment import GitEnvironment, GitEnvironmentError, validate_git_environment
-from ._validation import branch, identifier, run_id
+from ._retry_models import RETRY_FAILURE_KINDS
+from ._validation import EFFORT_ORDER, branch, identifier, run_id
 from .models import (
-    canonical_json, validate_host_capabilities_at, validate_run_bindings,
+    canonical_json, validate_host_capabilities_at, validate_retry_evidence,
+    validate_run_bindings,
 )
 
 
@@ -57,11 +59,7 @@ class PreparedLaunch:
 SCHEMA_VERSION = "compass-builder.launch-record.v1"
 WORKER_OUTPUT_VERSION = "compass-builder.worker-output.v1"
 REASONING_CONFIG_KEY = "model_reasoning_effort"
-EFFORT_ORDER = ("low", "medium", "high", "xhigh", "max", "ultra")
-FAILURE_KINDS = {
-    "reasoning", "startup", "model", "config", "tool", "permission",
-    "missing-input", "validation", "other",
-}
+FAILURE_KINDS = set(RETRY_FAILURE_KINDS)
 NON_REASONING_BLOCKERS = FAILURE_KINDS - {"reasoning"}
 MAX_PROMPT_BYTES = 65_536
 BUNDLED_WORKER_SCHEMA = (
@@ -210,6 +208,130 @@ def validate_launch_record(value: Mapping[str, object]) -> dict[str, object]:
     }
     if forbidden.intersection(argv):
         raise LaunchError("argv contains a forbidden authorization or write-scope bypass")
+    return record
+
+
+def validate_launch_authority(
+    value: Mapping[str, object],
+    run_spec: Mapping[str, object],
+    wave_plan: Mapping[str, object],
+    host_capabilities: Mapping[str, object],
+    *,
+    planning_timestamp: str,
+    story_id: str,
+    attempt: int,
+    registered_worktree: Path,
+    worker_start_sha: str,
+    git_environment: GitEnvironment,
+    previous_launch: Mapping[str, object] | None = None,
+    retry_evidence: Mapping[str, object] | None = None,
+) -> dict[str, object]:
+    """Bind a durable launch record to all immutable controller authority.
+
+    Unlike launch preparation, restart validation deliberately does not require
+    the disposable worker checkout to still exist. Its canonical registered path
+    remains part of the authority and the launch digest after cleanup.
+    """
+
+    record = validate_launch_record(value)
+    try:
+        host = validate_host_capabilities_at(host_capabilities, planning_timestamp)
+        spec, plan, _ = validate_run_bindings(
+            run_spec, wave_plan, host_capabilities=host,
+            planning_timestamp=planning_timestamp,
+        )
+        environment = validate_git_environment(git_environment)
+    except (ValueError, GitEnvironmentError) as exc:
+        raise LaunchError(f"durable launch authority is invalid: {exc}") from exc
+    if type(attempt) is not int or attempt not in (1, 2):
+        raise LaunchError("authoritative launch attempt must be 1 or 2")
+    planned = [story for story in plan["stories"] if story["storyId"] == story_id]
+    if len(planned) != 1:
+        raise LaunchError("durable launch story is not uniquely planner-bound")
+    planned_story = planned[0]
+    canonical_worktree = _require_absolute_path(
+        str(registered_worktree), "registered worktree", existing=False
+    )
+    if not isinstance(worker_start_sha, str) or not _SHA_RE.fullmatch(worker_start_sha):
+        raise LaunchError("authoritative worker start SHA is not one commit identity")
+    schema_path, schema_digest = _load_worker_schema(BUNDLED_WORKER_SCHEMA)
+    prompt = build_worker_prompt(spec, story_id=story_id)
+    initial_effort = str(planned_story["recommendedEffort"])
+    previous_digest: str | None = None
+    retry_digest: str | None = None
+    effort = initial_effort
+    if attempt == 2:
+        if previous_launch is None or retry_evidence is None:
+            raise LaunchError("second launch lacks durable first-attempt or retry authority")
+        previous = validate_launch_authority(
+            previous_launch, spec, plan, host,
+            planning_timestamp=planning_timestamp,
+            story_id=story_id, attempt=1,
+            registered_worktree=canonical_worktree,
+            worker_start_sha=worker_start_sha,
+            git_environment=environment,
+        )
+        previous_digest = _digest_json(previous)
+        try:
+            durable_retry = validate_retry_evidence(retry_evidence)
+        except ValueError as exc:
+            raise LaunchError(f"durable retry evidence is invalid: {exc}") from exc
+        expected_retry_identity = {
+            "runId": spec["runId"], "storyId": story_id, "attempt": 2,
+            "previousLaunchDigest": previous_digest,
+        }
+        if any(
+            durable_retry[field] != expected_value
+            for field, expected_value in expected_retry_identity.items()
+        ):
+            raise LaunchError(
+                "durable retry evidence does not bind the first launch identity"
+            )
+        retry_digest = str(durable_retry["evidenceDigest"])
+        disposition = classify_failure(
+            previous,
+            FailureEvidence(
+                str(durable_retry["kind"]), retry_digest,
+                source=str(durable_retry["source"]),
+            ),
+            host["supportedEfforts"],
+        )
+        if disposition.status != "retry" or disposition.retry_effort is None:
+            raise LaunchError(f"retry authority is blocked: {disposition.reason}")
+        effort = disposition.retry_effort
+    elif previous_launch is not None or retry_evidence is not None:
+        raise LaunchError("first launch cannot consume retry authority")
+    expected: dict[str, object] = {
+        "schemaVersion": SCHEMA_VERSION,
+        "runId": spec["runId"],
+        "storyId": story_id,
+        "branch": planned_story["branch"],
+        "attempt": attempt,
+        "worktree": str(canonical_worktree),
+        "exactModel": spec["exactModel"],
+        "effort": effort,
+        "initialRecommendedEffort": initial_effort,
+        "reasoningConfigKey": host["reasoningConfig"]["key"],
+        "reasoningConfigEvidenceDigest": host["reasoningConfig"]["evidenceDigest"],
+        "handoffDigest": planned_story["handoffDigest"],
+        "hostEvidenceDigest": plan["hostEvidenceDigest"],
+        "workerOutputSchemaPath": str(schema_path),
+        "workerOutputSchemaDigest": schema_digest,
+        "promptDigest": _digest_bytes(prompt.encode("utf-8")),
+        "gitEnvironmentDigest": environment.digest,
+        "workerStartSha": worker_start_sha,
+        "argv": [],
+        "previousLaunchDigest": previous_digest,
+        "retryEvidenceDigest": retry_digest,
+    }
+    expected["argv"] = list(_expected_argv(expected))
+    if record != expected:
+        drifted = sorted(
+            field for field in _RECORD_FIELDS if record[field] != expected[field]
+        )
+        raise LaunchError(
+            "durable launch differs from controller authority: " + ", ".join(drifted)
+        )
     return record
 
 
@@ -542,6 +664,7 @@ __all__ = [
     "BUNDLED_WORKER_SCHEMA", "EXPECTED_WORKER_SCHEMA_DIGEST",
     "FailureDisposition", "FailureEvidence", "LaunchError", "PreparedLaunch",
     "REASONING_CONFIG_KEY", "build_worker_prompt", "classify_failure",
-    "prepare_launch", "prepare_retry_launch", "validate_launch_record",
+    "prepare_launch", "prepare_retry_launch", "validate_launch_authority",
+    "validate_launch_record",
     "validate_worker_output",
 ]

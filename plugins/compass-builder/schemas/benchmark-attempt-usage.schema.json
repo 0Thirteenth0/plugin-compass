@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openai.local/compass-builder/benchmark-attempt-usage.schema.json",
+  "title": "Compass Builder benchmark attempt usage v1",
+  "x-compassBuilderSemanticConstraints": {
+    "schemaVersion": "compass-builder.semantic-constraints.v1",
+    "rules": [
+      {
+        "operator": "equal",
+        "left": "$.trialNumber",
+        "right": "$.pairNumber"
+      }
+    ]
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "runId", "workloadId", "attemptId", "arm", "pairNumber",
+    "trialNumber", "warmup", "benchmarkReceiptDigest", "completeness",
+    "incompleteReasons", "workers", "workerUsageRecords", "summary"
+  ],
+  "properties": {
+    "schemaVersion": {"const": "compass-builder.benchmark-attempt-usage.v1"},
+    "runId": {"$ref": "#/$defs/runId"},
+    "workloadId": {"$ref": "#/$defs/id"},
+    "attemptId": {"$ref": "#/$defs/id"},
+    "arm": {"enum": ["sequential", "parallel"]},
+    "pairNumber": {"type": "integer", "minimum": 0},
+    "trialNumber": {"type": "integer", "minimum": 0},
+    "warmup": {"type": "boolean"},
+    "benchmarkReceiptDigest": {"$ref": "#/$defs/digest"},
+    "completeness": {"enum": ["complete", "incomplete"]},
+    "incompleteReasons": {
+      "type": "array", "maxItems": 32, "uniqueItems": true,
+      "items": {"enum": [
+        "no-worker-launch-events", "invalid-worker-launch", "duplicate-worker-launch",
+        "missing-worker-usage", "unavailable-worker-usage", "duplicate-worker-usage",
+        "orphan-worker-usage", "invalid-worker-usage",
+        "invalid-worker-lifecycle-evidence"
+      ]}
+    },
+    "workers": {
+      "type": "array", "maxItems": 256, "items": {"$ref": "#/$defs/worker"}
+    },
+    "workerUsageRecords": {
+      "type": "array", "maxItems": 256,
+      "items": {"$ref": "worker-usage.schema.json"}
+    },
+    "summary": {"$ref": "#/$defs/summary"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"warmup": {"const": true}}},
+      "then": {"properties": {"pairNumber": {"const": 0}, "trialNumber": {"const": 0}}},
+      "else": {"properties": {"pairNumber": {"minimum": 1}, "trialNumber": {"minimum": 1}}}
+    },
+    {
+      "if": {"properties": {"completeness": {"const": "complete"}}},
+      "then": {
+        "properties": {
+          "incompleteReasons": {"maxItems": 0},
+          "summary": {"properties": {"tokens": {"$ref": "#/$defs/tokens"}}}
+        }
+      },
+      "else": {"properties": {"incompleteReasons": {"minItems": 1}, "summary": {"properties": {"tokens": {"type": "null"}}}}}
+    }
+  ],
+  "$defs": {
+    "id": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-z0-9][a-z0-9._-]{0,63}(?![\\s\\S])"},
+    "runId": {"type": "string", "maxLength": 97, "pattern": "^[a-z][a-z0-9-]{1,31}-[0-9a-f]{16,64}(?![\\s\\S])"},
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}(?![\\s\\S])"},
+    "count": {"type": "integer", "minimum": 0, "maximum": 9007199254740991},
+    "ratio": {"type": ["string", "null"], "pattern": "^(?:0|[1-9][0-9]*)\\.[0-9]{6}(?![\\s\\S])"},
+    "worker": {
+      "type": "object", "additionalProperties": false,
+      "required": ["runId", "storyId", "attempt", "launchDigest", "workerUsageDigest", "terminalStatus", "verifiedIntegrated"],
+      "properties": {
+        "runId": {"$ref": "#/$defs/runId"}, "storyId": {"$ref": "#/$defs/id"},
+        "attempt": {"type": "integer", "minimum": 1, "maximum": 2},
+        "launchDigest": {"$ref": "#/$defs/digest"},
+        "workerUsageDigest": {"oneOf": [{"$ref": "#/$defs/digest"}, {"type": "null"}]},
+        "terminalStatus": {"oneOf": [{"enum": ["succeeded", "failed", "blocked", "timed-out", "transport-error"]}, {"type": "null"}]},
+        "verifiedIntegrated": {"type": "boolean"}
+      }
+    },
+    "summary": {
+      "type": "object", "additionalProperties": false,
+      "required": ["workerAttemptCount", "attemptedStoryCount", "successfulStoryCount", "tokens"],
+      "properties": {
+        "workerAttemptCount": {"type": "integer", "minimum": 0, "maximum": 256},
+        "attemptedStoryCount": {"type": "integer", "minimum": 0, "maximum": 128},
+        "successfulStoryCount": {"type": "integer", "minimum": 0, "maximum": 128},
+        "tokens": {"oneOf": [{"$ref": "#/$defs/tokens"}, {"type": "null"}]}
+      }
+    },
+    "tokens": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "inputTokens", "cachedInputTokens", "cacheWriteInputTokens", "outputTokens",
+        "reasoningOutputTokens", "comparisonTokens", "cachedInputRatio",
+        "reasoningOutputShare", "comparisonTokensPerAttemptedStory",
+        "comparisonTokensPerSuccessfulStory", "retryComparisonTokens",
+        "failedAttemptComparisonTokens"
+      ],
+      "properties": {
+        "inputTokens": {"$ref": "#/$defs/count"}, "cachedInputTokens": {"$ref": "#/$defs/count"},
+        "cacheWriteInputTokens": {"$ref": "#/$defs/count"}, "outputTokens": {"$ref": "#/$defs/count"},
+        "reasoningOutputTokens": {"$ref": "#/$defs/count"}, "comparisonTokens": {"$ref": "#/$defs/count"},
+        "cachedInputRatio": {"$ref": "#/$defs/ratio"}, "reasoningOutputShare": {"$ref": "#/$defs/ratio"},
+        "comparisonTokensPerAttemptedStory": {"$ref": "#/$defs/ratio"},
+        "comparisonTokensPerSuccessfulStory": {"$ref": "#/$defs/ratio"},
+        "retryComparisonTokens": {"$ref": "#/$defs/count"},
+        "failedAttemptComparisonTokens": {"$ref": "#/$defs/count"}
+      }
+    }
+  }
+}

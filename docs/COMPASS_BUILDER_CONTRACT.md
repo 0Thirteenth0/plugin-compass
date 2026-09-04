@@ -42,6 +42,8 @@ Compass Builder must let a user:
 8. Resume from durable run state without treating worker self-reports as completion
    evidence.
 9. Compare sequential and parallel outcomes with reproducible benchmark receipts.
+10. Opt into story and root outcome gates whose trusted evidence is required before
+    import, integration verification, and completion.
 
 ## Invocation contract
 
@@ -77,6 +79,15 @@ launches one dependency wave at the planned concurrency, creates one scoped comm
 each worker exits, independently verifies every result, and integrates verified commits
 serially. Live resume
 remains unavailable in the MVP command surface; `resume` is still dry-run-only.
+
+Outcome gates do not reinterpret v1. A caller that needs them must supply the separate
+closed `compass-builder.plan-bundle.v2` contract, which adds one pristine pending
+`outcomeGateLedger` bound to the same run and known stories. V2 execution additionally
+requires a trusted in-process `OperatorGateProvider`; the standalone CLI has no approval
+broker and fails before dispatch. The provider receives the full validated gate
+definition and its digest just in time for one exact canonical workspace, scope, and
+immutable target SHA. A repository file, worker response, command-line flag, or raw
+mapping cannot grant approval.
 
 `doctor`, `plan`, `verify-worker`, and `compare` are read-only. Authorized live `run`,
 `benchmark`, and `cleanup` commands may create registered worker clones, launch
@@ -219,6 +230,92 @@ base/head SHAs, controller-owned commit, Git-derived changed files,
 checks, elapsed time, status, and blocker when present. Receipt claims never replace Git
 object inspection or controller-run validation at the worker SHA.
 
+Every worker attempt also produces exactly one immutable
+`compass-builder.worker-usage.v1` record and one finalized public `worker-usage` event.
+The record binds the run, story, attempt, exact model, effort, and canonical digest of a
+strictly decoded controller-owned launch record; it binds the worker-receipt digest when
+a validated receipt exists. Attempt-one launch evidence retains `<story>.json`; attempt
+two uses the collision-free `__attempt-2__<story>.json` name. Missing terminal usage is
+explicit rather than zero-filled. Invalid private transport telemetry and an invalid or
+cross-launch receipt use the closed `invalid-transport-telemetry` and
+`worker-receipt-binding-failed` reasons, discard untrusted counts, and retain a null
+receipt digest. Receipt binding compares run, story, branch, worktree, exact model,
+effort, and base SHA against the validated launch; the receipt base SHA must equal the
+launch `workerStartSha`. Telemetry persistence failure blocks the run before public
+emission. A launch record authorizes usage only after restart-safe validation against
+the canonical durable plan bundle, its host and reasoning evidence, the registered
+checkout path, the story wave's recorded start SHA, the controller-owned Git isolation
+environment, exact prompt and bundled worker schema, and the plan's effort and handoff
+evidence. Attempt two additionally requires the actual canonical attempt-one digest and
+one matching `compass-builder.retry-evidence.v1` journal record. That closed record
+binds the run, story, second attempt, evidence digest, and predecessor launch digest;
+only `source=controller` plus `kind=reasoning` authorizes the sole higher-effort retry.
+Generic failure records cannot authorize a retry. Missing, duplicate-identity,
+ambiguous, or noncanonical authority evidence fails closed. This validation does not
+require a cleaned-up worker checkout to remain present.
+
+Benchmark token telemetry is a separate evidence lane. Each benchmark arm writes one
+closed `compass-builder.benchmark-attempt-usage.v1` record that binds the canonical
+`benchmark-receipt.v1` digest, every ordered `(runId, storyId, attempt)` launch, and the
+matching finalized public `worker-usage` event. The benchmark runner does not interpret
+private worker stdout. Custom run executors that publish no usage remain compatible; the
+attempt record is explicitly `incomplete`, its token summary is null, and the existing v1
+receipt and aggregate are unchanged.
+
+Successful-story denominators come only from an exact succeeded `worker-completion` and
+matching `worker-branch-import` identity and head. Failed-attempt overhead includes every
+observed attempt that did not reach that verified-and-integrated state, including a worker
+that exited successfully but was never imported. Retry overhead includes every observed
+attempt numbered above one. Comparison tokens are exactly input plus output; cached input
+and reasoning output remain subsets and are never counted again.
+
+The closed `compass-builder.benchmark-token-report.v1` binds the aggregate, every attempt
+usage digest, and, when available, the unchanged v1 comparison output and its digest. It
+reports measured per-arm and matched-pair token totals, component ratios, per-attempted and
+per-successful-story values, retry/failed overhead, deltas, ratios, median elapsed time,
+first-pass counts, terminal outcomes, conflicts, retries, and interventions. Warm-up usage
+is retained in attempt provenance but excluded from measured arm and pair calculations,
+matching v1. If v1 comparison construction is unavailable, receipt-bound time and quality
+remain present and `v1-comparison-unavailable` is recorded; missing or invalid measured
+usage makes the token verdict incomplete. Only v1 owns the existing speed, quality, and
+graduation decision. Token telemetry adds no pricing, cost estimate, budget, routing rule,
+token-overhead threshold, or execution authority.
+
+## Outcome-gate authority and evidence
+
+The v2 ledger maps acceptance outcomes to either an exact approved command with bounded
+referenced inputs or an independent manual-review artifact. Every gate has a stable ID,
+story or root scope, required status, verification type, decisive expectation, and
+non-success handoff reason. Required non-met, denied, blocked, abandoned, unavailable, or
+pending outcomes block advancement; optional non-met outcomes remain truthful evidence.
+
+The first independent worker verification and all required story gates run in the
+registered isolated clone at its verified `headSha` before branch import. The destination
+ref remains absent when verification or a story gate fails. After each ordered merge,
+existing controller checks run first and root gates run at the exact merge SHA before
+`integration-verified` or `lastVerifiedIntegrationSha` advances. Gate failures retain the
+merged SHA and last verified SHA and create the phase-specific durable blocker.
+
+Gate receipts bind the run, full gate digest, scope/story, canonical workspace, target
+SHA, provider decision, execution identity or review artifact, outcome, sequence, and
+prior receipt digest. The provider seals every immutable receipt field, authenticates any
+receipt before publication or adoption, and retains a monotonic run-scoped
+count/terminal-digest checkpoint outside repository-controlled data. The provider must
+explicitly initialize a never-before-seen run at the genesis checkpoint; a missing
+checkpoint never re-anchors an existing or previously initialized history.
+
+Before an approved command launches, the provider atomically reserves its operator and
+command approval IDs under a scope-stable execution key and a unique attempt key. It
+retains per-attempt history and marks that attempt evidenced only after the authenticated
+receipt is published and checkpointed. An unresolved attempt blocks same-scope replay;
+an authenticated non-met attempt permits only a separately approved fresh attempt.
+Persisted command audits are closed detached records validated using their recorded
+platform, while live execution still requires exact current-host identity and paths.
+A structurally valid but unauthenticated chain or tail fails before a new decision or
+checkpoint advance. Only a fully authenticated crash-recovery tail may advance the
+checkpoint, and only exact durable `met` evidence may be adopted. The controller refolds
+exact required phase/target coverage before integration advancement and final completion.
+
 ## Per-worker effort policy
 
 - Plugin Compass supplies the advisory handoff decision; Compass Builder constructs the
@@ -262,6 +359,9 @@ object inspection or controller-run validation at the worker SHA.
   primary checkout, reparse points/symlinks, and any path outside that root.
 - Controller-run checks must leave the integration checkout clean, including untracked
   files. Any validation-created mutation blocks verification and retains all evidence.
+- V2 outcome-gate capabilities are single-use and provider-bound. No persisted receipt,
+  ledger, raw approval mapping, or controller state can be replayed as executable
+  authority.
 
 ## Validation and benchmark contract
 
@@ -321,6 +421,11 @@ two-builder calibration limit requires:
 
 Benchmark output reports each metric separately. It must not collapse safety and speed
 into one aggregate score.
+
+The executable benchmark additionally publishes immutable canonical
+`attempt-usage-NNN.json`, `attempt-usage.json`, and `token-report.json` artifacts inside its
+new output directory. It rejects a private controller event at this boundary and never
+replaces an existing output target.
 
 ## Non-goals for the MVP
 

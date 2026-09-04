@@ -308,6 +308,7 @@ def verify_worker(
     git_environment: GitEnvironment,
     *,
     command_runner: CommandRunner | None = None,
+    verify_before_import: bool = False,
 ) -> VerifiedWorker:
     """Verify one worker solely from launch bindings, Git objects, and fresh checks."""
 
@@ -320,11 +321,22 @@ def verify_worker(
     base_sha, head_sha = str(claimed["baseSha"]), str(claimed["headSha"])
     if claimed["commitSha"] != head_sha:
         raise VerificationError("receipt commit SHA does not equal its worker head")
+    store = StateStore(repository, spec, plan, git_environment)
+    root = store.repository.root
+    story_id = str(claimed["storyId"])
+    registered_worktree = store.registered_worktree(story_id)
     try:
-        store = StateStore(repository, spec, plan, git_environment)
+        worktree = Path(str(claimed["worktree"])).resolve(strict=True)
+    except OSError as exc:
+        raise VerificationError(f"worker checkout identity is unavailable: {exc}") from exc
+    if root == worktree:
+        raise VerificationError("worker receipt points at the primary integration checkout")
+    if worktree != registered_worktree:
+        raise VerificationError("receipt worktree is not the controller-registered story worktree")
+    try:
         raw_head = read_raw_commit(
-            store.repository.root, head_sha, git_environment.environment,
-            expected_parent_count=1,
+            worktree if verify_before_import else root,
+            head_sha, git_environment.environment, expected_parent_count=1,
         )
     except GitObjectError as exc:
         raise VerificationError(f"worker commit object is invalid: {exc}") from exc
@@ -336,14 +348,6 @@ def verify_worker(
         durable_state = store.load()
     except StateError as exc:
         raise VerificationError(f"durable controller ownership is invalid: {exc}") from exc
-    root = store.repository.root
-    worktree = Path(str(claimed["worktree"])).resolve(strict=True)
-    if root == worktree:
-        raise VerificationError("worker receipt points at the primary integration checkout")
-    story_id = str(claimed["storyId"])
-    registered_worktree = store.registered_worktree(story_id)
-    if worktree != registered_worktree:
-        raise VerificationError("receipt worktree is not the controller-registered story worktree")
     current_entries = durable_state["waves"][durable_state["currentWaveIndex"]]["branches"]
     ledger_matches = [item for item in current_entries if item["storyId"] == story_id]
     ledger_tuple = None if len(ledger_matches) != 1 else (

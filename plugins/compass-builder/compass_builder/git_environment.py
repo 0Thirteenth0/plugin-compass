@@ -190,6 +190,23 @@ def validate_git_environment(bundle: GitEnvironment) -> GitEnvironment:
         "template_directory": root / "empty-template",
         "hooks_directory": root / "empty-hooks",
     }
+    try:
+        actual_names = {entry.name for entry in root.iterdir()}
+    except OSError as exc:
+        raise GitEnvironmentError(
+            f"controller-owned Git root contents are unavailable: {exc}"
+        ) from exc
+    expected_names = {path.name for path in expected_paths.values()}
+    missing_names = expected_names - actual_names
+    if missing_names:
+        raise GitEnvironmentError(
+            "controller-owned Git evidence is missing or unreadable: "
+            + ", ".join(sorted(missing_names))
+        )
+    if actual_names - expected_names:
+        raise GitEnvironmentError(
+            "controller-owned Git root contains ambiguous evidence"
+        )
     for field, expected in expected_paths.items():
         candidate = getattr(bundle, field)
         if not isinstance(candidate, Path):

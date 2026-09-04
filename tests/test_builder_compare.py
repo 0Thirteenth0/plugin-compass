@@ -81,6 +81,32 @@ def arm(arm_name: str, durations: list[int]):
 
 
 class BuilderComparisonTests(unittest.TestCase):
+    def test_comparison_v1_full_output_remains_byte_stable(self):
+        sequential, seq_events = arm("sequential", [1000] * 5)
+        parallel, par_events = arm("parallel", [800] * 5)
+        result = compare(
+            sequential, parallel,
+            sequential_events=seq_events, parallel_events=par_events,
+        )
+        self.assertEqual({
+            "schemaVersion": "compass-builder.benchmark-comparison.v1",
+            "thresholdPercent": "20.00", "graduated": True,
+            "workloads": [{
+                "workloadId": "sample", "pairCount": 5,
+                "medianSequentialMs": "1000", "medianParallelMs": "800",
+                "improvementPercent": "20.00", "firstPassSequential": 5,
+                "firstPassParallel": 5, "interventionsSequential": 0,
+                "interventionsParallel": 0,
+                "blockingSafetyMetrics": {
+                    "timeouts": 0, "staleHeadEvents": 0,
+                    "conflictsManualResolved": 0, "conflictsUnresolved": 0,
+                    "scopeViolations": 0, "manualEdits": 0,
+                    "repairDispatches": 0,
+                },
+                "eligible": True, "reasons": [],
+            }],
+        }, result)
+
     def test_exact_twenty_percent_uses_unrounded_decimal_and_graduates(self):
         sequential, seq_events = arm("sequential", [1000] * 5)
         parallel, par_events = arm("parallel", [800] * 5)

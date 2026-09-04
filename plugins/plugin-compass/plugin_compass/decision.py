@@ -9,6 +9,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Iterable
 
+from .adapters.standalone import StandaloneDiscoveryResult
 from .scheduling import SCHEDULING_TERMS, build_scheduling_guidance
 
 from .models import (
@@ -25,6 +26,12 @@ from .models import (
     RepositoryContext,
     sorted_unique,
     stable_id,
+)
+from .skill_decision import build_skill_decision
+from .skill_models import (
+    SkillRecord,
+    StandaloneDiscoverySummary,
+    plugin_packaged_skills,
 )
 
 
@@ -604,6 +611,11 @@ def build_recommendation_plan(
     external_evidence: Iterable[EvidenceRecord] = (),
     host_platform: str | None = None,
     optimization_goal: str = "speed",
+    standalone_skills: Iterable[SkillRecord] = (),
+    requested_skills: Iterable[str] = (),
+    standalone_discovery: (
+        StandaloneDiscoverySummary | StandaloneDiscoveryResult | None
+    ) = None,
 ) -> RecommendationPlan:
     if optimization_goal not in {"speed", "cost"}:
         raise ValueError(f"unsupported optimization goal: {optimization_goal}")
@@ -652,6 +664,110 @@ def build_recommendation_plan(
         optimization_goal=optimization_goal,
     )
 
+    packaged_skills = plugin_packaged_skills(ordered_plugins)
+    standalone_values = tuple(standalone_skills)
+    requested_values = tuple(requested_skills)
+    assessment_by_plugin = {item.plugin_id: item for item in assessments}
+    eligible_plugin_ids = {
+        plugin.plugin_id
+        for plugin in ordered_plugins
+        if plugin.installed
+        and plugin.enabled
+        and assessment_by_plugin[plugin.plugin_id].classification
+        in {"Use now", "Useful on demand"}
+    }
+    ineligible_skill_ids = {
+        skill.skill_id
+        for skill in packaged_skills
+        if skill.source_identity not in eligible_plugin_ids
+    }
+    skill_decision = build_skill_decision(
+        (*packaged_skills, *standalone_values),
+        task,
+        requested_skills=requested_values,
+        ineligible_skill_ids=ineligible_skill_ids,
+    )
+    ordered_skills = tuple(item.skill for item in skill_decision.assessments)
+
+    if standalone_values or requested_values:
+        suppressed_names = {
+            item.name.casefold()
+            for item in skill_decision.recommendations
+            if item.skill.source_type != "plugin"
+        }
+        skills_by_qualified_identity = {
+            item.qualified_identity: item for item in ordered_skills
+        }
+        for requested in requested_values:
+            if requested.startswith("skill://"):
+                requested_skill = skills_by_qualified_identity.get(requested)
+                if requested_skill is not None:
+                    suppressed_names.add(requested_skill.name.casefold())
+            else:
+                suppressed_names.add(requested.casefold())
+        standalone_coverage: set[str] = set()
+        for item in skill_decision.recommendations:
+            if item.skill.source_type != "plugin":
+                standalone_coverage.update(item.covered_terms)
+        task_tokens = set(tokenize(task))
+        for skill in packaged_skills:
+            coverage = task_tokens & set(tokenize(f"{skill.name} {skill.description}"))
+            if coverage and coverage <= standalone_coverage:
+                suppressed_names.add(skill.name.casefold())
+        suppressed_names.update(
+            item.name.casefold() for item in skill_decision.ambiguities
+        )
+        filtered: list[Recommendation] = []
+        for recommendation in recommendations:
+            names = tuple(
+                name for name in recommendation.capability_names
+                if name.casefold() not in suppressed_names
+            )
+            if names:
+                filtered.append(replace(recommendation, capability_names=names))
+        recommendations = tuple(filtered)
+
+        by_plugin = {item.plugin_id: item for item in recommendations}
+        for skill_recommendation in skill_decision.recommendations:
+            skill = skill_recommendation.skill
+            if skill.source_type != "plugin" or skill.source_identity not in eligible_plugin_ids:
+                continue
+            existing = by_plugin.get(skill.source_identity)
+            if existing is None:
+                by_plugin[skill.source_identity] = Recommendation(
+                    plugin_id=skill.source_identity,
+                    capability_names=(skill.name,),
+                    rationale=skill_recommendation.rationale,
+                    evidence_refs=skill.evidence_refs,
+                )
+            else:
+                by_plugin[skill.source_identity] = replace(
+                    existing,
+                    capability_names=sorted_unique(
+                        (*existing.capability_names, skill.name)
+                    ),
+                    evidence_refs=sorted_unique(
+                        (*existing.evidence_refs, *skill.evidence_refs)
+                    ),
+                )
+        recommendations = tuple(sorted(
+            by_plugin.values(), key=lambda item: item.plugin_id.casefold(),
+        ))
+
+    if standalone_discovery is None:
+        standalone_summary = StandaloneDiscoverySummary.create(
+            "complete" if standalone_values else "not_configured"
+        )
+    elif isinstance(standalone_discovery, StandaloneDiscoverySummary):
+        standalone_summary = standalone_discovery
+    elif isinstance(standalone_discovery, StandaloneDiscoveryResult):
+        standalone_summary = standalone_discovery.to_summary()
+    else:
+        raise TypeError(
+            "standalone_discovery must be a StandaloneDiscoverySummary or "
+            "StandaloneDiscoveryResult"
+        )
+
     from .rendering import build_session_prompt
 
     prompt = build_session_prompt(
@@ -660,6 +776,11 @@ def build_recommendation_plan(
         assessments,
         invocation_routes,
         scheduling_guidance,
+        skill_recommendations=skill_decision.recommendations,
+        skill_ambiguities=skill_decision.ambiguities,
+        discovery_diagnostics=tuple(
+            item.to_dict() for item in standalone_summary.diagnostics
+        ),
         readiness_notes=tuple(
             f"{plugin.plugin_id}:{cap.name}: {cap.readiness.status} in {cap.readiness.root}; "
             "do not invoke this capability until its runtime path is resolved."
@@ -672,6 +793,11 @@ def build_recommendation_plan(
         task=task,
         repository=repository,
         plugins=ordered_plugins,
+        skills=ordered_skills,
+        standalone_discovery=standalone_summary,
+        skill_assessments=skill_decision.assessments,
+        skill_ambiguities=skill_decision.ambiguities,
+        skill_recommendations=skill_decision.recommendations,
         findings=ordered_findings,
         triage=triage_findings(ordered_findings),
         assessments=assessments,

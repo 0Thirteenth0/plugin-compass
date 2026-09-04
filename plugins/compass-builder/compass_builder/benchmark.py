@@ -128,6 +128,17 @@ def compare(
     par_all, par = _normalize_arm(parallel, "parallel")
     validate_event_ledger(sequential_events, seq_all)
     validate_event_ledger(parallel_events, par_all)
+    return _canonical_comparison(seq, par)
+
+
+def _canonical_comparison(
+    sequential: Iterable[Mapping[str, object]],
+    parallel: Iterable[Mapping[str, object]],
+) -> dict[str, object]:
+    """Compute the immutable v1 decision from validated measured receipts."""
+
+    _, seq = _normalize_arm(sequential, "sequential")
+    _, par = _normalize_arm(parallel, "parallel")
     seq_by_key = {(item["workloadId"], item["pairNumber"]): item for item in seq}
     par_by_key = {(item["workloadId"], item["pairNumber"]): item for item in par}
     if len(seq_by_key) != len(seq) or len(par_by_key) != len(par):

@@ -19,11 +19,13 @@ from .secure_files import (
 REQUIRED = frozenset({"transaction.json", "controller.json", "state.json"})
 OPTIONAL = frozenset({
     "plan-bundle.json", "git-environment", "launch-records", "failure-records",
-    "cleanup-progress", "merge-intents",
+    "cleanup-progress", "merge-intents", "gate-evidence",
+    "gate-execution-intents", "worker-usage", "retry-evidence",
 })
 DIRECTORIES = frozenset({
     "git-environment", "launch-records", "failure-records", "cleanup-progress",
-    "merge-intents",
+    "merge-intents", "gate-evidence",
+    "gate-execution-intents", "worker-usage", "retry-evidence",
 })
 MAX_RECORDS = 1024
 MAX_RECORD_BYTES = 1_048_576
@@ -35,6 +37,24 @@ def accepts(names: Collection[str], *, require_bundle: bool = False) -> bool:
     present = set(names)
     required = REQUIRED | ({"plan-bundle.json"} if require_bundle else set())
     return required <= present and present <= REQUIRED | OPTIONAL
+
+
+def decode_canonical_mapping(payload: bytes, *, label: str) -> dict[str, object]:
+    """Strictly decode one mapping whose bytes are its canonical JSON form."""
+
+    try:
+        value = json.loads(payload.decode("utf-8"))
+    except (RecursionError, UnicodeError, ValueError) as exc:
+        raise ValueError(f"{label} is malformed") from exc
+    if not isinstance(value, dict):
+        raise ValueError(f"{label} is malformed")
+    try:
+        canonical = canonical_json(value)
+    except (RecursionError, TypeError, ValueError) as exc:
+        raise ValueError(f"{label} is not canonical JSON") from exc
+    if canonical != payload:
+        raise ValueError(f"{label} is not canonical JSON")
+    return value
 
 
 class ArtifactJournal:
@@ -110,14 +130,14 @@ class ArtifactJournal:
         directory = self._directory(name, create=False)
         records = []
         for path, payload in self._entries(directory):
-            value = json.loads(payload.decode("utf-8"))
-            if not isinstance(value, dict):
-                raise ValueError(f"durable {name} receipt is malformed")
-            records.append(value)
+            records.append(decode_canonical_mapping(
+                payload, label=f"durable {name} receipt"
+            ))
         return tuple(records)
 
 
 __all__ = [
     "ArtifactJournal", "DIRECTORIES", "MAX_AGGREGATE_BYTES", "MAX_RECORD_BYTES",
     "MAX_RECORDS", "OPTIONAL", "REQUIRED", "accepts",
+    "decode_canonical_mapping",
 ]

@@ -10,7 +10,7 @@ from typing import Mapping
 from .durable_artifacts import accepts
 from .errors import StateError
 from .git_environment import GitEnvironment
-from .models import canonical_json, validate_run_bindings
+from .models import canonical_json, validate_outcome_gate_ledger, validate_run_bindings
 from .repository import resolve_repository
 from .secure_files import read_no_follow, require_contained
 from ._validation import run_id as validate_run_id
@@ -36,12 +36,32 @@ def build_execution_bundle(run_spec, wave_plan, host_capabilities, planning_time
     }, identity.root, git_environment)
 
 
+def build_gated_execution_bundle(
+    run_spec, wave_plan, host_capabilities, planning_timestamp, repository,
+    outcome_gate_ledger, git_environment=None,
+):
+    """Build the closed opt-in v2 bundle without changing the v1 contract."""
+
+    bundle = build_execution_bundle(
+        run_spec, wave_plan, host_capabilities, planning_timestamp,
+        repository, git_environment,
+    )
+    bundle["schemaVersion"] = "compass-builder.plan-bundle.v2"
+    bundle["outcomeGateLedger"] = copy.deepcopy(dict(outcome_gate_ledger))
+    return validate_execution_bundle(bundle, Path(repository), git_environment)
+
+
 def validate_execution_bundle(value: Mapping[str, object], repository: Path | None = None, git_environment: GitEnvironment | None = None):
-    required = {"schemaVersion", "runSpec", "wavePlan", "hostCapabilities", "planningTimestamp", "repositoryIdentity"}
+    v1_fields = {"schemaVersion", "runSpec", "wavePlan", "hostCapabilities", "planningTimestamp", "repositoryIdentity"}
+    version = value.get("schemaVersion") if isinstance(value, Mapping) else None
+    required = v1_fields | ({"outcomeGateLedger"} if version == "compass-builder.plan-bundle.v2" else set())
     if not isinstance(value, Mapping) or set(value) != required:
-        raise StateError("execution bundle must match the closed compass-builder.plan-bundle.v1 field set")
+        label = "compass-builder.plan-bundle.v2" if version == "compass-builder.plan-bundle.v2" else "compass-builder.plan-bundle.v1"
+        raise StateError(f"execution bundle must match the closed {label} field set")
     bundle = copy.deepcopy(dict(value))
-    if bundle["schemaVersion"] != "compass-builder.plan-bundle.v1":
+    if bundle["schemaVersion"] not in {
+        "compass-builder.plan-bundle.v1", "compass-builder.plan-bundle.v2",
+    }:
         raise StateError("execution bundle has an unsupported schemaVersion")
     if not all(isinstance(bundle[field], Mapping) for field in ("runSpec", "wavePlan", "hostCapabilities")):
         raise StateError("execution bundle contracts must be JSON objects")
@@ -66,6 +86,26 @@ def validate_execution_bundle(value: Mapping[str, object], repository: Path | No
         if identity != expected:
             raise StateError("execution bundle repository identity does not match this checkout")
     bundle["runSpec"], bundle["wavePlan"] = spec, plan
+    if bundle["schemaVersion"] == "compass-builder.plan-bundle.v2":
+        try:
+            ledger = validate_outcome_gate_ledger(bundle["outcomeGateLedger"])
+        except (TypeError, ValueError) as exc:
+            raise StateError(f"execution bundle outcome-gate ledger is invalid: {exc}") from exc
+        if ledger["runId"] != spec["runId"]:
+            raise StateError("execution bundle outcome-gate ledger run does not match the immutable run")
+        known_stories = {item["id"] for item in spec["stories"]}
+        for gate in ledger["gates"]:
+            if gate["gateScope"] == "story" and gate["storyId"] not in known_stories:
+                raise StateError("execution bundle outcome-gate ledger references an unknown story")
+            if (
+                gate["state"] != "pending"
+                or gate["evidenceDigest"] is not None
+                or gate["validatedAt"] is not None
+                or gate["verificationRunId"] is not None
+                or gate["handoffReason"] is not None
+            ):
+                raise StateError("execution bundle outcome-gate ledger must be pristine and pending")
+        bundle["outcomeGateLedger"] = ledger
     canonical_json(bundle)
     return bundle
 
@@ -90,7 +130,11 @@ def load_run_bundle(repository: Path, run_id: str, git_environment: GitEnvironme
         raise StateError(f"durable execution bundle is unavailable or malformed: {exc}") from exc
     if not isinstance(value, dict):
         raise StateError("durable execution bundle must be a JSON object")
-    return validate_execution_bundle(value, identity.root, git_environment)
+    bundle = validate_execution_bundle(value, identity.root, git_environment)
+    gate_artifacts = {"gate-evidence", "gate-execution-intents"} & names
+    if bundle["schemaVersion"] == "compass-builder.plan-bundle.v1" and gate_artifacts:
+        raise StateError("plan-bundle.v1 durable run cannot contain D3 gate artifacts")
+    return bundle
 
 
 def load_run_inputs(repository: Path, run_id: str, git_environment: GitEnvironment | None = None):
@@ -98,4 +142,7 @@ def load_run_inputs(repository: Path, run_id: str, git_environment: GitEnvironme
     return bundle["runSpec"], bundle["wavePlan"]
 
 
-__all__ = ["build_execution_bundle", "load_run_bundle", "load_run_inputs", "validate_execution_bundle"]
+__all__ = [
+    "build_execution_bundle", "build_gated_execution_bundle", "load_run_bundle",
+    "load_run_inputs", "validate_execution_bundle",
+]

@@ -4,7 +4,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from hashlib import sha256
-from typing import Any, Iterable
+from typing import TYPE_CHECKING, Any, Iterable
+
+if TYPE_CHECKING:
+    from .skill_models import (
+        SkillAmbiguity,
+        SkillAssessment,
+        SkillRecord,
+        SkillRecommendation,
+        StandaloneDiscoverySummary,
+    )
 
 
 CLASSIFICATIONS = (
@@ -32,7 +41,10 @@ def stable_id(prefix: str, *parts: object) -> str:
 
 
 def sorted_unique(values: Iterable[str]) -> tuple[str, ...]:
-    return tuple(sorted({value for value in values if value}, key=str.casefold))
+    return tuple(sorted(
+        {value for value in values if value},
+        key=lambda value: (value.casefold(), value),
+    ))
 
 
 @dataclass(frozen=True, slots=True)
@@ -454,6 +466,11 @@ class RecommendationPlan:
     task: str
     repository: RepositoryContext
     plugins: tuple[PluginRecord, ...]
+    skills: tuple["SkillRecord", ...]
+    standalone_discovery: "StandaloneDiscoverySummary"
+    skill_assessments: tuple["SkillAssessment", ...]
+    skill_ambiguities: tuple["SkillAmbiguity", ...]
+    skill_recommendations: tuple["SkillRecommendation", ...]
     findings: tuple[FindingRecord, ...]
     triage: tuple[FindingTriage, ...]
     assessments: tuple[Assessment, ...]
@@ -464,7 +481,15 @@ class RecommendationPlan:
     optimization_goal: str = "speed"
     scheduling_guidance: SchedulingGuidance | None = None
     evidence: tuple[EvidenceRecord, ...] = field(default_factory=tuple)
-    schema_version: str = "plugin-compass.plan.v3"
+    schema_version: str = "plugin-compass.plan.v5"
+
+    def __post_init__(self) -> None:
+        from .skill_models import StandaloneDiscoverySummary
+
+        if not isinstance(self.standalone_discovery, StandaloneDiscoverySummary):
+            raise TypeError(
+                "standalone_discovery must be a StandaloneDiscoverySummary"
+            )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -478,6 +503,30 @@ class RecommendationPlan:
             "plugins": [
                 item.to_dict()
                 for item in sorted(self.plugins, key=lambda value: value.plugin_id.casefold())
+            ],
+            "skills": [
+                item.to_dict()
+                for item in sorted(self.skills, key=lambda value: value.skill_id)
+            ],
+            "standalone_discovery": self.standalone_discovery.to_dict(),
+            "skill_assessments": [
+                item.to_dict()
+                for item in sorted(
+                    self.skill_assessments, key=lambda value: value.skill_id
+                )
+            ],
+            "skill_ambiguities": [
+                item.to_dict()
+                for item in sorted(
+                    self.skill_ambiguities,
+                    key=lambda value: (value.name.casefold(), value.candidates),
+                )
+            ],
+            "skill_recommendations": [
+                item.to_dict()
+                for item in sorted(
+                    self.skill_recommendations, key=lambda value: value.skill_id
+                )
             ],
             "findings": [
                 item.to_dict()

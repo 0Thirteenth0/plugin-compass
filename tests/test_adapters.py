@@ -64,12 +64,13 @@ class CodexAdapterTests(unittest.TestCase):
                 run_inventory()
         self.assertNotIsInstance(error.exception, CodexInventoryInconclusive)
 
-    def test_explicit_empty_snapshot_does_not_run_live_discovery(self) -> None:
+    def test_explicit_empty_snapshot_is_inconclusive_without_live_discovery(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             snapshot = Path(temporary) / "approved empty.json"
             snapshot.write_text('{"installed":[],"available":[]}', encoding="utf-8")
             with patch("plugin_compass.adapters.codex.subprocess.run") as run:
-                self.assertEqual((), discover_plugins(inventory_file=snapshot))
+                with self.assertRaises(CodexInventoryInconclusive):
+                    discover_plugins(inventory_file=snapshot)
             run.assert_not_called()
 
     def test_fixture_inventory_resolves_relative_roots_and_metadata(self) -> None:

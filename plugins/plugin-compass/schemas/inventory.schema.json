@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://plugin-compass.local/schemas/inventory.schema.json",
+  "title": "Plugin Compass Inventory",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "plugins", "skills", "standalone_discovery"],
+  "properties": {
+    "schema_version": { "const": "plugin-compass.inventory.v3" },
+    "plugins": {
+      "type": "array",
+      "items": { "$ref": "recommendation-plan.schema.json#/$defs/plugin" }
+    },
+    "skills": {
+      "type": "array",
+      "items": { "$ref": "recommendation-plan.schema.json#/$defs/skill" }
+    },
+    "standalone_discovery": {
+      "$ref": "recommendation-plan.schema.json#/$defs/standaloneDiscovery"
+    }
+  }
+}

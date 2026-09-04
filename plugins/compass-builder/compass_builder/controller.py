@@ -11,6 +11,7 @@ import copy
 import hashlib
 import json
 import subprocess
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -19,15 +20,21 @@ from pathlib import Path, PurePosixPath
 from typing import Callable, Mapping, Sequence
 
 from .git_environment import GitEnvironment, prepare_git_environment
+from .gate_enforcement import (
+    GateEnforcementError, OperatorGateProvider, enforce_scope_gates,
+    require_gate_evidence_coverage, require_operator_provider,
+)
+from .gate_evidence import GateEvidenceJournal
 from .integrator import IntegrationError, integrate_verified_branch
 from .launcher import (
     BUNDLED_WORKER_SCHEMA, PreparedLaunch, REASONING_CONFIG_KEY,
-    prepare_launch, validate_worker_output,
+    prepare_launch, validate_launch_record, validate_worker_output,
 )
-from .models import canonical_json, validate_worker_receipt
+from .models import canonical_digest, canonical_json, validate_worker_receipt
 from .process_runner import BoundedProcessError, parse_command, run_bounded, run_bounded_text
 from .secure_files import write_new_no_follow
 from .state import StateStore, validate_execution_bundle
+from .usage import build_unavailable_worker_usage, parse_worker_usage
 from .verifier import VerificationError, verify_worker
 
 
@@ -39,6 +46,7 @@ METRIC_NAMES = (
     "staleHeadEvents", "timeouts", "checkFailures", "checkReruns",
     "repairDispatches", "manualEdits",
 )
+_WORKER_USAGE_OBSERVATION_EVENT = "_worker-usage-observation"
 
 
 class ControllerError(RuntimeError):
@@ -99,6 +107,96 @@ def _timestamp(value: datetime) -> str:
 
 def _digest(value: object) -> str:
     return "sha256:" + hashlib.sha256(canonical_json(value)).hexdigest()
+
+
+class _WorkerUsageChannelError(ControllerError):
+    """A transport attempted to bypass the closed usage observation channel."""
+
+
+def _launch_usage_identity(launch: PreparedLaunch) -> dict[str, object]:
+    try:
+        record = validate_launch_record(launch.record)
+    except ValueError as exc:
+        raise ControllerError(f"worker usage launch binding is invalid: {exc}") from exc
+    return {
+        "runId": record["runId"],
+        "storyId": record["storyId"],
+        "attempt": record["attempt"],
+        "exactModel": record["exactModel"],
+        "effort": record["effort"],
+        "launchDigest": canonical_digest(record),
+        "branch": record["branch"],
+        "worktree": record["worktree"],
+        "workerStartSha": record["workerStartSha"],
+    }
+
+
+def _prepare_worker_usage(
+    launch: PreparedLaunch,
+    stdout: bytes,
+    terminal_status: str,
+    receipt: Mapping[str, object] | None,
+) -> dict[str, object]:
+    identity = _launch_usage_identity(launch)
+    try:
+        record = parse_worker_usage(
+            stdout,
+            launch_identity=identity,
+            terminal_status=terminal_status,
+            worker_receipt=receipt,
+        )
+    except (TypeError, ValueError) as exc:
+        raise ControllerError(
+            f"worker usage finalization failure: {exc}"
+        ) from exc
+    for field in (
+        "runId", "storyId", "attempt", "exactModel", "effort", "launchDigest",
+    ):
+        value = identity[field]
+        if record[field] != value:
+            raise ControllerError(
+                f"worker usage finalization changed launch binding {field}"
+            )
+    return record
+
+
+def _prepare_unavailable_worker_usage(
+    launch: PreparedLaunch, unavailable_reason: str,
+) -> dict[str, object]:
+    identity = _launch_usage_identity(launch)
+    try:
+        record = build_unavailable_worker_usage(
+            launch_identity=identity,
+            terminal_status="transport-error",
+            unavailable_reason=unavailable_reason,
+        )
+    except (TypeError, ValueError) as exc:
+        raise ControllerError(
+            f"worker usage finalization failure: {exc}"
+        ) from exc
+    for field in (
+        "runId", "storyId", "attempt", "exactModel", "effort", "launchDigest",
+    ):
+        value = identity[field]
+        if record[field] != value:
+            raise ControllerError(
+                f"worker usage finalization changed launch binding {field}"
+            )
+    return record
+
+
+def _persist_worker_usage(
+    store: StateStore, record: Mapping[str, object]
+) -> dict[str, object]:
+    try:
+        normalized = store.record_worker_usage(record)
+    except (OSError, TypeError, ValueError) as exc:
+        raise ControllerError(
+            f"worker usage persistence failure: {exc}"
+        ) from exc
+    if normalized != record:
+        raise ControllerError("worker usage persistence changed finalized evidence")
+    return normalized
 
 
 def _git(
@@ -342,12 +440,14 @@ def codex_worker_transport(
             environment=launch.environment, stdin=launch.stdin.encode("utf-8"),
             timeout=timeout_ms / 1000,
         )
+        event_sink(_WORKER_USAGE_OBSERVATION_EVENT, {"stdout": result.stdout})
         output = _structured_output(result.stdout)
         status = str(output["status"])
         blocker = None if status == "succeeded" else str(output["blocker"])
         if result.returncode and status == "succeeded":
             status, blocker = "failed", f"Codex exited with status {result.returncode}"
     except BoundedProcessError as exc:
+        event_sink(_WORKER_USAGE_OBSERVATION_EVENT, {"stdout": exc.stdout})
         status = "timed-out" if "timed out" in str(exc) else "failed"
         blocker = str(exc)[:2000]
         if status == "timed-out":
@@ -467,19 +567,62 @@ def _import_worker_branch(
     return imported
 
 
+def _require_destination_ref_absent(
+    store: StateStore, environment: GitEnvironment, receipt: Mapping[str, object]
+) -> None:
+    destination_ref = f"refs/heads/{receipt['branch']}"
+    observed = _git(
+        store.repository.root, environment,
+        ["show-ref", "--verify", "--quiet", destination_ref], check=False,
+    )
+    if observed.returncode == 0:
+        raise GateEnforcementError(
+            f"destination branch ref already exists before story verification: {destination_ref}"
+        )
+    if observed.returncode != 1:
+        raise GateEnforcementError(
+            f"destination branch ref absence could not be proven: {destination_ref}"
+        )
+
+
 def _publish_launch(store: StateStore, story_id: str, launch: PreparedLaunch) -> None:
+    try:
+        record = validate_launch_record(launch.record)
+    except ValueError as exc:
+        raise ControllerError(f"worker launch record is invalid: {exc}") from exc
+    if record["storyId"] != story_id:
+        raise ControllerError("worker launch record does not bind its planned story")
     directory = store.run_root / "launch-records"
     directory.mkdir(exist_ok=True)
     write_new_no_follow(
-        directory / f"{story_id}.json", canonical_json(launch.record), store.control_root,
+        store.launch_record_path(story_id, int(record["attempt"])),
+        canonical_json(record), store.control_root,
         label="controller-owned launch record",
     )
 
 
 def _block(store: StateStore, state: Mapping[str, object], message: str) -> None:
+    if state.get("state") == "blocked":
+        return
     store.record_blocker(
         state, reason=message, evidence_digest=_digest({"reason": message}),
     )
+
+
+def _record_story_gate_blocker(
+    store: StateStore, state: Mapping[str, object], story_id: str,
+    message: str, receipts: Sequence[Mapping[str, object]] = (),
+) -> Mapping[str, object]:
+    evidence_digest = _digest({
+        "phase": "verification", "storyId": story_id,
+        "receipts": [dict(item) for item in receipts], "reason": message,
+    })
+    blocked = store.record_blocker(
+        state, reason=message, evidence_digest=evidence_digest,
+        story_id=story_id, phase="verification",
+        resume_state="wave-workers-complete",
+    )
+    return state if blocked is None else blocked
 
 
 def execute_run(
@@ -489,6 +632,7 @@ def execute_run(
     worker_transport: WorkerTransport = codex_worker_transport,
     timeout_ms: int = 600_000,
     event_sink: EventSink | None = None,
+    operator_gate_provider: OperatorGateProvider | None = None,
 ) -> ControllerResult:
     """Execute a new run to a clean green integrated HEAD or fail closed."""
 
@@ -496,6 +640,12 @@ def execute_run(
         raise ControllerError("controller timeout must be a positive integer millisecond bound")
     sink = event_sink or (lambda _kind, _details: None)
     raw = validate_execution_bundle(execution_bundle, Path(repository))
+    gated = raw["schemaVersion"] == "compass-builder.plan-bundle.v2"
+    if raw["schemaVersion"] == "compass-builder.plan-bundle.v2":
+        try:
+            require_operator_provider(operator_gate_provider)
+        except RuntimeError as exc:
+            raise ControllerError(str(exc)) from exc
     spec, plan = raw["runSpec"], raw["wavePlan"]
     provisional = StateStore(repository, spec, plan)
     initial = provisional.initial_state()
@@ -504,6 +654,8 @@ def execute_run(
     bundle = validate_execution_bundle(raw, Path(repository), environment)
     store = StateStore(repository, spec, plan, environment)
     state = store.load()
+    gate_journal = GateEvidenceJournal(store.run_root, store.control_root) if gated else None
+    gate_targets: list[tuple[str, str | None, Path, str]] = []
     metrics = empty_metrics()
     first_launch: datetime | None = None
     try:
@@ -547,17 +699,107 @@ def execute_run(
                 state = store.write_transition(state, dispatching)
             stories = {str(item["id"]): item for item in spec["stories"]}
             receipts: dict[str, dict[str, object]] = {}
+            usage_lock = threading.Lock()
 
             def run_story(story_id: str) -> tuple[str, dict[str, object]]:
-                sink("worker-launch", {
-                    "runId": spec["runId"], "storyId": story_id,
-                    "attempt": launches[story_id].record["attempt"],
-                })
-                receipt = validate_worker_receipt(worker_transport(
-                    launches[story_id], stories[story_id], timeout_ms, sink
-                ))
+                launch_identity = _launch_usage_identity(launches[story_id])
+                public_identity = {
+                    field: launch_identity[field]
+                    for field in ("runId", "storyId", "attempt", "launchDigest")
+                }
+                sink("worker-launch", public_identity)
+                observed_stdout: bytes | None = None
+                channel_failure: _WorkerUsageChannelError | None = None
+
+                def transport_sink(
+                    kind: str, details: Mapping[str, object]
+                ) -> None:
+                    nonlocal channel_failure, observed_stdout
+                    if kind == "worker-usage":
+                        channel_failure = channel_failure or _WorkerUsageChannelError(
+                            "worker transport cannot emit public worker-usage evidence"
+                        )
+                        raise channel_failure
+                    if kind == _WORKER_USAGE_OBSERVATION_EVENT:
+                        if (
+                            not isinstance(details, Mapping)
+                            or set(details) != {"stdout"}
+                            or type(details["stdout"]) is not bytes
+                        ):
+                            channel_failure = channel_failure or _WorkerUsageChannelError(
+                                "worker transport usage observation is malformed"
+                            )
+                            raise channel_failure
+                        if observed_stdout is not None:
+                            channel_failure = channel_failure or _WorkerUsageChannelError(
+                                "worker transport emitted duplicate usage observations"
+                            )
+                            raise channel_failure
+                        observed_stdout = details["stdout"]
+                        return
+                    sink(kind, details)
+
+                receipt: dict[str, object] | None = None
+                failure: Exception | None = None
+                try:
+                    raw_receipt = worker_transport(
+                        launches[story_id], stories[story_id], timeout_ms,
+                        transport_sink,
+                    )
+                except _WorkerUsageChannelError as exc:
+                    # Once the private channel is violated, no captured bytes are
+                    # trustworthy enough to retain as evidence.
+                    observed_stdout = None
+                    failure = exc
+                    usage = _prepare_unavailable_worker_usage(
+                        launches[story_id], "invalid-transport-telemetry"
+                    )
+                except Exception as exc:
+                    failure = exc
+                    if channel_failure is not None:
+                        observed_stdout = None
+                        usage = _prepare_unavailable_worker_usage(
+                            launches[story_id], "invalid-transport-telemetry"
+                        )
+                    else:
+                        usage = _prepare_worker_usage(
+                            launches[story_id], observed_stdout or b"",
+                            "transport-error", None,
+                        )
+                else:
+                    if channel_failure is not None:
+                        observed_stdout = None
+                        failure = channel_failure
+                        usage = _prepare_unavailable_worker_usage(
+                            launches[story_id], "invalid-transport-telemetry"
+                        )
+                    else:
+                        try:
+                            receipt = validate_worker_receipt(raw_receipt)
+                            usage = _prepare_worker_usage(
+                                launches[story_id], observed_stdout or b"",
+                                str(receipt["status"]), receipt,
+                            )
+                        except Exception as exc:
+                            observed_stdout = None
+                            receipt = None
+                            failure = exc
+                            usage = _prepare_unavailable_worker_usage(
+                                launches[story_id], "worker-receipt-binding-failed"
+                            )
+                try:
+                    with usage_lock:
+                        usage = _persist_worker_usage(store, usage)
+                except ControllerError as usage_exc:
+                    if failure is not None:
+                        raise usage_exc from failure
+                    raise
+                sink("worker-usage", copy.deepcopy(usage))
+                if failure is not None:
+                    raise failure
+                assert receipt is not None
                 sink("worker-completion", {
-                    "runId": spec["runId"], "storyId": story_id,
+                    **public_identity,
                     "status": receipt["status"], "headSha": receipt["headSha"],
                 })
                 return story_id, receipt
@@ -586,25 +828,98 @@ def execute_run(
                 entry["workerState"] = "complete"
             state = store.write_transition(state, completed)
             for story_id in story_ids:
+                if gated:
+                    assert gate_journal is not None
+                    story_workspace = Path(str(receipts[story_id]["worktree"]))
+                    story_target = str(receipts[story_id]["headSha"])
+                    gate_receipts: Sequence[Mapping[str, object]] = ()
+                    try:
+                        _require_destination_ref_absent(
+                            store, environment, receipts[story_id]
+                        )
+                        verify_worker(
+                            store.repository.root, spec, plan, receipts[story_id],
+                            launches[story_id].record, environment,
+                            verify_before_import=True,
+                        )
+                        story_outcome = enforce_scope_gates(
+                            raw["outcomeGateLedger"], gate_scope="story", story_id=story_id,
+                            workspace=story_workspace, target_sha=story_target,
+                            environment=environment.environment,
+                            provider=operator_gate_provider, journal=gate_journal,
+                        )
+                        gate_receipts = story_outcome.receipts
+                        for gate_receipt in gate_receipts:
+                            sink("outcome-gate", gate_receipt)
+                        if not story_outcome.required_met:
+                            raise GateEnforcementError(
+                                story_outcome.blocking_reason
+                                or "required story outcome gate did not pass"
+                            )
+                        require_gate_evidence_coverage(
+                            raw["outcomeGateLedger"], gate_scope="story",
+                            story_id=story_id, workspace=story_workspace,
+                            target_sha=story_target, environment=environment.environment,
+                            provider=operator_gate_provider, journal=gate_journal,
+                        )
+                    except (GateEnforcementError, VerificationError) as exc:
+                        state = _record_story_gate_blocker(
+                            store, state, story_id, str(exc), gate_receipts
+                        )
+                        raise
+                    gate_targets.append(("story", story_id, story_workspace, story_target))
                 imported = _import_worker_branch(store, environment, receipts[story_id])
+                launch_identity = _launch_usage_identity(launches[story_id])
                 sink("worker-branch-import", {
-                    "storyId": story_id, "headSha": imported,
+                    **{
+                        field: launch_identity[field]
+                        for field in ("runId", "storyId", "attempt", "launchDigest")
+                    },
+                    "headSha": imported,
                 })
                 sink("ref-status-observation", {
                     "storyId": story_id, "integrationHead": store.observed_integration_head(),
                 })
-                verify_worker(
-                    store.repository.root, spec, plan, receipts[story_id],
-                    launches[story_id].record, environment,
-                )
+                if not gated:
+                    verify_worker(
+                        store.repository.root, spec, plan, receipts[story_id],
+                        launches[story_id].record, environment,
+                    )
             merging = copy.deepcopy(state)
             merging.update(previousState="wave-workers-complete", state="wave-merging")
             for entry in merging["waves"][merging["currentWaveIndex"]]["branches"]:
                 entry.update(verificationState="verified", integrationState="worker-verified")
             state = store.write_transition(state, merging)
             for story_id in story_ids:
+                post_check_gate = None
+                if gated:
+                    def post_check_gate(
+                        workspace: Path, merge_sha: str, gate_environment: GitEnvironment,
+                    ) -> None:
+                        assert gate_journal is not None
+                        root_outcome = enforce_scope_gates(
+                            raw["outcomeGateLedger"], gate_scope="root", story_id=None,
+                            workspace=workspace, target_sha=merge_sha,
+                            environment=gate_environment.environment,
+                            provider=operator_gate_provider, journal=gate_journal,
+                        )
+                        for gate_receipt in root_outcome.receipts:
+                            sink("outcome-gate", gate_receipt)
+                        if not root_outcome.required_met:
+                            raise GateEnforcementError(
+                                root_outcome.blocking_reason
+                                or "required root outcome gate did not pass"
+                            )
+                        require_gate_evidence_coverage(
+                            raw["outcomeGateLedger"], gate_scope="root", story_id=None,
+                            workspace=workspace, target_sha=merge_sha,
+                            environment=gate_environment.environment,
+                            provider=operator_gate_provider, journal=gate_journal,
+                        )
+                        gate_targets.append(("root", None, workspace, merge_sha))
                 result = integrate_verified_branch(
                     store, state, receipts[story_id], environment,
+                    post_check_gate=post_check_gate,
                 )
                 state = result.state
                 sink("check-rerun", {
@@ -615,11 +930,24 @@ def execute_run(
                 })
             if int(state["currentWaveIndex"]) + 1 < len(plan["waves"]):
                 continue
+            if gated:
+                assert gate_journal is not None
+                for gate_scope, story_id, workspace, target_sha in gate_targets:
+                    require_gate_evidence_coverage(
+                        raw["outcomeGateLedger"], gate_scope=gate_scope,
+                        story_id=story_id, workspace=workspace, target_sha=target_sha,
+                        environment=environment.environment,
+                        provider=operator_gate_provider, journal=gate_journal,
+                        historical=True,
+                    )
             final = copy.deepcopy(state)
             final.update(previousState="wave-verified", state="completed")
             state = store.write_transition(state, final)
             break
-    except (ControllerError, IntegrationError, VerificationError, OSError, ValueError) as exc:
+    except (
+        ControllerError, GateEnforcementError, IntegrationError,
+        VerificationError, OSError, ValueError,
+    ) as exc:
         try:
             _block(store, state, str(exc))
         except Exception:

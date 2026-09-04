@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import inspect
 import json
 import os
 import subprocess
@@ -93,6 +94,39 @@ class BuilderIntegratorTests(unittest.TestCase):
         self.assertEqual(result.merge_sha, entry["mergeSha"])
         parents = self.context["factory"].git("rev-list", "--parents", "-n", "1", result.merge_sha).stdout.decode().split()
         self.assertEqual(3, len(parents))
+
+    def test_root_gate_runs_after_existing_checks_before_verified_state_advances(self):
+        self.assertIn(
+            "post_check_gate",
+            inspect.signature(integrate_verified_branch).parameters,
+            "integrator lacks the D3 pre-advance root-gate boundary",
+        )
+        order: list[str] = []
+
+        def existing_check(argv, _cwd, _environment):
+            order.append("existing-check")
+            return subprocess.CompletedProcess(argv, 0, "", "")
+
+        def root_gate(workspace, merge_sha, _environment):
+            durable = self.store.load()
+            entry = durable["waves"][0]["branches"][0]
+            self.assertEqual("wave-integrated-unverified", durable["state"])
+            self.assertEqual("merged", entry["integrationState"])
+            self.assertEqual(self.context["base"], durable["lastVerifiedIntegrationSha"])
+            self.assertEqual(merge_sha, self.context["factory"].sha("HEAD"))
+            self.assertEqual(self.context["factory"].repo, workspace)
+            order.append("root-gate")
+
+        result = integrate_verified_branch(
+            self.store, self.state, self.context["receipt"],
+            self.context["factory"].environment,
+            acquired_at="2026-09-01T12:01:00Z",
+            expires_at="2026-09-01T12:06:00Z",
+            command_runner=existing_check,
+            post_check_gate=root_gate,
+        )
+        self.assertEqual(["existing-check", "root-gate"], order)
+        self.assertEqual("wave-verified", result.state["state"])
 
     def test_caller_constructed_verification_authority_cannot_merge_out_of_scope_commit(self):
         factory, worker = self.context["factory"], self.context["worker"]
@@ -293,6 +327,28 @@ class BuilderIntegratorTests(unittest.TestCase):
         self.assertLess(time.monotonic() - started, 2)
         time.sleep(1.6)
         self.assertFalse(overflow_marker.exists())
+
+    @unittest.skipIf(os.name == "nt", "POSIX process-group cleanup contract")
+    def test_bounded_runner_can_cleanup_descendants_after_successful_parent_exit(self):
+        marker = Path(self.temporary.name) / "successful-parent-descendant.txt"
+        child = (
+            "import pathlib,time; time.sleep(1.0); "
+            f"pathlib.Path({str(marker)!r}).write_text('escaped')"
+        )
+        parent = (
+            "import subprocess,sys; "
+            f"subprocess.Popen([sys.executable,'-c',{child!r}]); print('parent-ok')"
+        )
+        result = run_bounded(
+            [sys.executable, "-c", parent],
+            timeout=3,
+            max_output_bytes=128,
+            terminate_process_group_on_parent_exit=True,
+        )
+        self.assertEqual(0, result.returncode)
+        self.assertEqual(b"parent-ok\n", result.stdout)
+        time.sleep(1.2)
+        self.assertFalse(marker.exists())
 
     def test_bounded_runner_propagates_pipe_reader_errors(self):
         import compass_builder.process_runner as runner_module

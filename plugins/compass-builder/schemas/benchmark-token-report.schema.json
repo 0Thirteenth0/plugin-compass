@@ -1,0 +1,164 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openai.local/compass-builder/benchmark-token-report.schema.json",
+  "title": "Compass Builder benchmark token report v1",
+  "type": "object", "additionalProperties": false,
+  "required": [
+    "schemaVersion", "benchmarkAggregateDigest", "benchmarkComparisonDigest",
+    "benchmarkComparison", "warmupsIncludedInMeasuredComparison", "tokenVerdict",
+    "incompleteReasons", "attemptUsage", "armSummaries", "pairSummaries"
+  ],
+  "properties": {
+    "schemaVersion": {"const": "compass-builder.benchmark-token-report.v1"},
+    "benchmarkAggregateDigest": {"$ref": "#/$defs/digest"},
+    "benchmarkComparisonDigest": {"oneOf": [{"$ref": "#/$defs/digest"}, {"type": "null"}]},
+    "benchmarkComparison": {"oneOf": [{"$ref": "#/$defs/comparison"}, {"type": "null"}]},
+    "warmupsIncludedInMeasuredComparison": {"const": false},
+    "tokenVerdict": {"enum": ["complete", "incomplete"]},
+    "incompleteReasons": {
+      "type": "array", "maxItems": 4, "uniqueItems": true,
+      "items": {"enum": ["incomplete-attempt-usage", "missing-attempt-usage", "invalid-attempt-usage", "v1-comparison-unavailable"]}
+    },
+    "attemptUsage": {"type": "array", "minItems": 1, "maxItems": 16384, "items": {"$ref": "#/$defs/attemptRef"}},
+    "armSummaries": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"$ref": "#/$defs/arm"}},
+    "pairSummaries": {"type": "array", "minItems": 1, "maxItems": 16384, "items": {"$ref": "#/$defs/pair"}}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"tokenVerdict": {"const": "complete"}}},
+      "then": {
+        "properties": {
+          "incompleteReasons": {
+            "items": {
+              "not": {
+                "enum": [
+                  "incomplete-attempt-usage",
+                  "missing-attempt-usage",
+                  "invalid-attempt-usage"
+                ]
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "incompleteReasons": {
+            "contains": {
+              "enum": [
+                "incomplete-attempt-usage",
+                "missing-attempt-usage",
+                "invalid-attempt-usage"
+              ]
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "id": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-z0-9][a-z0-9._-]{0,63}(?![\\s\\S])"},
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}(?![\\s\\S])"},
+    "count": {"type": "integer", "minimum": 0, "maximum": 9007199254740991},
+    "ratio": {"type": ["string", "null"], "pattern": "^(?:0|[1-9][0-9]*)\\.[0-9]{6}(?![\\s\\S])"},
+    "attemptRef": {
+      "type": "object", "additionalProperties": false,
+      "required": ["workloadId", "attemptId", "arm", "pairNumber", "warmup", "attemptUsageDigest", "completeness"],
+      "properties": {
+        "workloadId": {"$ref": "#/$defs/id"}, "attemptId": {"$ref": "#/$defs/id"},
+        "arm": {"enum": ["sequential", "parallel"]}, "pairNumber": {"type": "integer", "minimum": 0},
+        "warmup": {"type": "boolean"}, "attemptUsageDigest": {"$ref": "#/$defs/digest"},
+        "completeness": {"enum": ["complete", "incomplete"]}
+      }
+    },
+    "metrics": {
+      "type": "object", "additionalProperties": false,
+      "required": ["retries", "interventions", "conflictsDetected", "conflictsAutoResolved", "conflictsManualResolved", "conflictsUnresolved", "scopeViolations", "staleHeadEvents", "timeouts", "checkFailures", "checkReruns", "repairDispatches", "manualEdits"],
+      "properties": {
+        "retries": {"$ref": "#/$defs/count"}, "interventions": {"$ref": "#/$defs/count"},
+        "conflictsDetected": {"$ref": "#/$defs/count"}, "conflictsAutoResolved": {"$ref": "#/$defs/count"},
+        "conflictsManualResolved": {"$ref": "#/$defs/count"}, "conflictsUnresolved": {"$ref": "#/$defs/count"},
+        "scopeViolations": {"$ref": "#/$defs/count"}, "staleHeadEvents": {"$ref": "#/$defs/count"},
+        "timeouts": {"$ref": "#/$defs/count"}, "checkFailures": {"$ref": "#/$defs/count"},
+        "checkReruns": {"$ref": "#/$defs/count"}, "repairDispatches": {"$ref": "#/$defs/count"},
+        "manualEdits": {"$ref": "#/$defs/count"}
+      }
+    },
+    "statusCounts": {
+      "type": "object", "additionalProperties": false,
+      "required": ["green", "failed", "timed-out", "blocked", "incomparable"],
+      "properties": {
+        "green": {"$ref": "#/$defs/count"}, "failed": {"$ref": "#/$defs/count"},
+        "timed-out": {"$ref": "#/$defs/count"}, "blocked": {"$ref": "#/$defs/count"},
+        "incomparable": {"$ref": "#/$defs/count"}
+      }
+    },
+    "tokens": {
+      "type": "object", "additionalProperties": false,
+      "required": ["inputTokens", "cachedInputTokens", "cacheWriteInputTokens", "outputTokens", "reasoningOutputTokens", "comparisonTokens", "cachedInputRatio", "reasoningOutputShare", "comparisonTokensPerAttemptedStory", "comparisonTokensPerSuccessfulStory", "retryComparisonTokens", "failedAttemptComparisonTokens"],
+      "properties": {
+        "inputTokens": {"$ref": "#/$defs/count"}, "cachedInputTokens": {"$ref": "#/$defs/count"},
+        "cacheWriteInputTokens": {"$ref": "#/$defs/count"}, "outputTokens": {"$ref": "#/$defs/count"},
+        "reasoningOutputTokens": {"$ref": "#/$defs/count"}, "comparisonTokens": {"$ref": "#/$defs/count"},
+        "cachedInputRatio": {"$ref": "#/$defs/ratio"}, "reasoningOutputShare": {"$ref": "#/$defs/ratio"},
+        "comparisonTokensPerAttemptedStory": {"$ref": "#/$defs/ratio"}, "comparisonTokensPerSuccessfulStory": {"$ref": "#/$defs/ratio"},
+        "retryComparisonTokens": {"$ref": "#/$defs/count"}, "failedAttemptComparisonTokens": {"$ref": "#/$defs/count"}
+      }
+    },
+    "arm": {
+      "type": "object", "additionalProperties": false,
+      "required": ["arm", "measuredAttemptCount", "warmupAttemptCount", "medianElapsedMs", "firstPassCount", "terminalStatusCounts", "metrics", "attemptedStoryCount", "successfulStoryCount", "tokens"],
+      "properties": {
+        "arm": {"enum": ["sequential", "parallel"]}, "measuredAttemptCount": {"type": "integer", "minimum": 1},
+        "warmupAttemptCount": {"type": "integer", "minimum": 0}, "medianElapsedMs": {"type": "string", "pattern": "^(?:0|[1-9][0-9]*)(?:\\.5)?(?![\\s\\S])"},
+        "firstPassCount": {"type": "integer", "minimum": 0}, "terminalStatusCounts": {"$ref": "#/$defs/statusCounts"},
+        "metrics": {"$ref": "#/$defs/metrics"}, "attemptedStoryCount": {"type": "integer", "minimum": 0},
+        "successfulStoryCount": {"type": "integer", "minimum": 0}, "tokens": {"oneOf": [{"$ref": "#/$defs/tokens"}, {"type": "null"}]}
+      }
+    },
+    "pair": {
+      "type": "object", "additionalProperties": false,
+      "required": ["workloadId", "pairNumber", "sequentialAttemptUsageDigest", "parallelAttemptUsageDigest", "sequentialElapsedMs", "parallelElapsedMs", "elapsedDeltaMs", "tokenVerdict", "sequentialTokens", "parallelTokens", "tokenDelta", "tokenRatio"],
+      "properties": {
+        "workloadId": {"$ref": "#/$defs/id"}, "pairNumber": {"type": "integer", "minimum": 1},
+        "sequentialAttemptUsageDigest": {"$ref": "#/$defs/digest"}, "parallelAttemptUsageDigest": {"$ref": "#/$defs/digest"},
+        "sequentialElapsedMs": {"type": "integer", "minimum": 1}, "parallelElapsedMs": {"type": "integer", "minimum": 1},
+        "elapsedDeltaMs": {"type": "integer"}, "tokenVerdict": {"enum": ["complete", "incomplete"]},
+        "sequentialTokens": {"oneOf": [{"$ref": "#/$defs/tokens"}, {"type": "null"}]},
+        "parallelTokens": {"oneOf": [{"$ref": "#/$defs/tokens"}, {"type": "null"}]},
+        "tokenDelta": {"type": ["integer", "null"]}, "tokenRatio": {"$ref": "#/$defs/ratio"}
+      }
+    },
+    "blocking": {
+      "type": "object", "additionalProperties": false,
+      "required": ["timeouts", "staleHeadEvents", "conflictsManualResolved", "conflictsUnresolved", "scopeViolations", "manualEdits", "repairDispatches"],
+      "properties": {
+        "timeouts": {"$ref": "#/$defs/count"}, "staleHeadEvents": {"$ref": "#/$defs/count"},
+        "conflictsManualResolved": {"$ref": "#/$defs/count"}, "conflictsUnresolved": {"$ref": "#/$defs/count"},
+        "scopeViolations": {"$ref": "#/$defs/count"}, "manualEdits": {"$ref": "#/$defs/count"},
+        "repairDispatches": {"$ref": "#/$defs/count"}
+      }
+    },
+    "comparisonWorkload": {
+      "type": "object", "additionalProperties": false,
+      "required": ["workloadId", "pairCount", "medianSequentialMs", "medianParallelMs", "improvementPercent", "firstPassSequential", "firstPassParallel", "interventionsSequential", "interventionsParallel", "blockingSafetyMetrics", "eligible", "reasons"],
+      "properties": {
+        "workloadId": {"$ref": "#/$defs/id"}, "pairCount": {"type": "integer", "minimum": 5},
+        "medianSequentialMs": {"type": "string"}, "medianParallelMs": {"type": "string"}, "improvementPercent": {"type": "string"},
+        "firstPassSequential": {"type": "integer", "minimum": 0}, "firstPassParallel": {"type": "integer", "minimum": 0},
+        "interventionsSequential": {"type": "integer", "minimum": 0}, "interventionsParallel": {"type": "integer", "minimum": 0},
+        "blockingSafetyMetrics": {"$ref": "#/$defs/blocking"}, "eligible": {"type": "boolean"},
+        "reasons": {"type": "array", "maxItems": 32, "items": {"type": "string", "minLength": 1, "maxLength": 4096}}
+      }
+    },
+    "comparison": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schemaVersion", "thresholdPercent", "graduated", "workloads"],
+      "properties": {
+        "schemaVersion": {"const": "compass-builder.benchmark-comparison.v1"},
+        "thresholdPercent": {"const": "20.00"}, "graduated": {"type": "boolean"},
+        "workloads": {"type": "array", "minItems": 1, "maxItems": 64, "items": {"$ref": "#/$defs/comparisonWorkload"}}
+      }
+    }
+  }
+}

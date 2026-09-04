@@ -11,6 +11,7 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Callable, Mapping, Sequence
 
+from ._validation import EFFORT_ORDER
 from .models import canonical_json
 
 
@@ -19,7 +20,6 @@ class HandoffError(ValueError):
 
 
 POLICY_VERSION = "plugin-compass.effort-policy.v1"
-EFFORT_ORDER = ("low", "medium", "high", "xhigh", "max", "ultra")
 HANDOFF_FIELDS = {
     "schema_version", "decision_id", "status", "objective", "enforcement",
     "evidence_basis", "task_id", "selected_model", "supported_efforts",

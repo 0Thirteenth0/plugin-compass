@@ -60,7 +60,7 @@ class CliTests(unittest.TestCase):
         )
         payload = json.loads(stdout)
         self.assertEqual(0, code, stderr)
-        self.assertEqual("plugin-compass.inventory.v2", payload["schema_version"])
+        self.assertEqual("plugin-compass.inventory.v3", payload["schema_version"])
         self.assertEqual(7, len(payload["plugins"]))
 
     def test_subprocess_emits_utf8_on_windows_code_pages(self) -> None:
@@ -107,7 +107,7 @@ class CliTests(unittest.TestCase):
         code, stdout, stderr = self.run_cli(common_arguments("assess"))
         payload = json.loads(stdout)
         self.assertEqual(0, code, stderr)
-        self.assertEqual("plugin-compass.plan.v3", payload["schema_version"])
+        self.assertEqual("plugin-compass.plan.v5", payload["schema_version"])
         self.assertEqual("specialist@fixture", payload["recommendations"][0]["plugin_id"])
         self.assertTrue(payload["evidence"])
 
@@ -119,7 +119,7 @@ class CliTests(unittest.TestCase):
         code, stdout, stderr = self.run_cli(arguments)
         payload = json.loads(stdout)
         self.assertEqual(0, code, stderr)
-        self.assertEqual("plugin-compass.prompt.v2", payload["schema_version"])
+        self.assertEqual("plugin-compass.prompt.v3", payload["schema_version"])
         self.assertIn("Use only this evidence-backed capability set", payload["generated_prompt"])
         self.assertEqual("speed", payload["optimization_goal"])
         self.assertEqual([], payload["invocation_routes"])
@@ -167,6 +167,39 @@ class CliTests(unittest.TestCase):
                         self.assertEqual("", stdout)
                         self.assertIn("inconclusive", stderr)
                         self.assertIn("--inventory-file", stderr)
+
+    def test_empty_saved_and_live_inventory_stop_before_standalone_scan(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="Plugin Compass empty inventory ") as temporary:
+            root = Path(temporary)
+            snapshot = root / "approved empty.json"
+            snapshot.write_text('{"installed":[],"available":[]}', encoding="utf-8")
+            skill_root = root / "Standalone Skills"
+            skill_root.mkdir()
+            for source in ("saved", "live"):
+                with self.subTest(source=source), patch(
+                    "plugin_compass.cli.discover_standalone_skills",
+                    side_effect=AssertionError("standalone discovery must not run"),
+                ) as standalone_scan:
+                    args = [
+                        "inventory",
+                        "--user-skill-root", "user:fixture", str(skill_root),
+                        "--format", "json",
+                    ]
+                    if source == "saved":
+                        args += ["--inventory-file", str(snapshot)]
+                        code, stdout, stderr = self.run_cli(args)
+                    else:
+                        with patch(
+                            "plugin_compass.adapters.codex.subprocess.run",
+                            return_value=subprocess.CompletedProcess(
+                                [], 0, '{"installed":[],"available":[]}', ''
+                            ),
+                        ):
+                            code, stdout, stderr = self.run_cli(args)
+                    payload = json.loads(stdout)
+                    self.assertEqual(3, code, stderr)
+                    self.assertEqual("CODEX_INVENTORY_EMPTY", payload["code"])
+                    standalone_scan.assert_not_called()
 
     def test_speed_guidance_is_visible_in_recommend_markdown(self) -> None:
         args = common_arguments("recommend", "markdown")

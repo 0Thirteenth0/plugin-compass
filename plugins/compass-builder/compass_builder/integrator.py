@@ -33,6 +33,7 @@ class _IntegrationFinished(Exception):
 
 
 CommandRunner = Callable[[Sequence[str], Path, Mapping[str, str]], subprocess.CompletedProcess[str]]
+PostCheckGate = Callable[[Path, str, GitEnvironment], None]
 
 
 @dataclass(frozen=True)
@@ -168,6 +169,7 @@ def _block_post_check(
 def _finish_recorded_merge(
     store: StateStore, integrated: Mapping[str, object], story_id: str,
     environment: GitEnvironment, runner: CommandRunner,
+    post_check_gate: PostCheckGate | None,
 ) -> IntegrationResult:
     entries = integrated["waves"][integrated["currentWaveIndex"]]["branches"]
     matches = [entry for entry in entries if entry["storyId"] == story_id and entry["integrationState"] == "merged"]
@@ -193,6 +195,31 @@ def _finish_recorded_merge(
             reason="One or more controller checks failed during merge recovery.",
         )
         raise IntegrationError("controller checks failed during merge recovery")
+    if post_check_gate is not None:
+        try:
+            post_check_gate(store.repository.root, merge_sha, environment)
+        except Exception as exc:
+            gate_digest = _digest({
+                "schemaVersion": "compass-builder.root-gate-failure.v1",
+                "mergeSha": merge_sha, "reason": str(exc),
+            })
+            _block_post_check(
+                store, integrated, story_id=story_id, evidence_digest=gate_digest,
+                reason=f"Required root outcome gate failed during merge recovery: {exc}",
+            )
+            raise IntegrationError(f"required root outcome gate failed during merge recovery: {exc}") from exc
+        if _head(store.repository.root, environment) != merge_sha or not _clean(
+            store.repository.root, environment
+        ):
+            gate_digest = _digest({
+                "schemaVersion": "compass-builder.root-gate-failure.v1",
+                "mergeSha": merge_sha, "reason": "workspace mutation",
+            })
+            _block_post_check(
+                store, integrated, story_id=story_id, evidence_digest=gate_digest,
+                reason="Root outcome gate mutated the integration checkout.",
+            )
+            raise IntegrationError("root outcome gate mutated the integration checkout")
     verified = copy.deepcopy(dict(integrated))
     last = target_index + 1 == len(entries)
     verified.update(
@@ -221,6 +248,7 @@ def integrate_verified_branch(
     acquired_at: str | None = None,
     expires_at: str | None = None,
     command_runner: CommandRunner | None = None,
+    post_check_gate: PostCheckGate | None = None,
 ) -> IntegrationResult:
     """Freshly verify under lease and merge only the resulting immutable SHA."""
 
@@ -257,7 +285,8 @@ def integrate_verified_branch(
             raise IntegrationError("durable ordered branch ledger changed before integration")
         if current["state"] == "wave-integrated-unverified":
             result_value = _finish_recorded_merge(
-                store, current, story_id, bundle, command_runner or _default_runner
+                store, current, story_id, bundle, command_runner or _default_runner,
+                post_check_gate,
             )
             current = result_value.state
             raise _IntegrationFinished()
@@ -386,6 +415,32 @@ def integrate_verified_branch(
                 evidence_digest=check_digest, reason=reason,
             )
             raise IntegrationError(reason + " Merge and worktree evidence retained.")
+
+        if post_check_gate is not None:
+            try:
+                post_check_gate(repo, merge_sha, bundle)
+            except Exception as exc:
+                gate_digest = _digest({
+                    "schemaVersion": "compass-builder.root-gate-failure.v1",
+                    "mergeSha": merge_sha, "reason": str(exc),
+                })
+                current = _block_post_check(
+                    store, integrated, story_id=verified.story_id,
+                    evidence_digest=gate_digest,
+                    reason=f"Required root outcome gate failed: {exc}",
+                )
+                raise IntegrationError(f"required root outcome gate failed: {exc}") from exc
+            if _head(repo, bundle) != merge_sha or not _clean(repo, bundle):
+                gate_digest = _digest({
+                    "schemaVersion": "compass-builder.root-gate-failure.v1",
+                    "mergeSha": merge_sha, "reason": "workspace mutation",
+                })
+                current = _block_post_check(
+                    store, integrated, story_id=verified.story_id,
+                    evidence_digest=gate_digest,
+                    reason="Root outcome gate mutated the integration checkout.",
+                )
+                raise IntegrationError("root outcome gate mutated the integration checkout")
 
         verified_state = copy.deepcopy(integrated)
         last = target_index + 1 == len(entries)

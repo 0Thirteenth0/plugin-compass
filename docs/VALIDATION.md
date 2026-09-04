@@ -56,6 +56,101 @@ the owned process tree on timeout or output overflow. Either bound violation is 
 actionable check, never a skip or degraded result. Human failure output retains only the
 bounded diagnostic; stable JSON intentionally omits process traces.
 
+## Workstream F4 standalone release closure and D3 focused checks
+
+Before relying on the repository-wide audit, the source-neutral standalone-skill lane can
+be exercised without live skill directories:
+
+```powershell
+python -m unittest tests.test_f4_release_closure tests.test_source_neutral_skill_models tests.test_standalone_skill_discovery tests.test_standalone_skill_ordering tests.test_skill_decision tests.test_f3_cli tests.test_cli tests.test_adapters -v
+```
+
+These tests use saved plugin inventory and temporary standalone roots only. They cover
+bounded metadata reads, malformed/duplicate/non-UTF-8/oversized metadata, missing and
+unreadable roots/files, traversal/count/runtime limits, symlink/reparse/path escape
+rejection, qualified source collisions, exact fail-closed selection, minimum-cardinality
+mixed-source coverage, Windows paths and identities with spaces, byte-identical
+inventory/recommend/prompt output across root order, public schema/model parity, packaged
+plugin compatibility, inconclusive plugin inventory, and the non-execution/read-only
+boundary. They do not inspect live skill roots, infer plugins from caches, install or
+invoke a skill, or write fixtures outside temporary directories.
+
+The adversarial cases also enforce the documented plain-scalar grammar: inline comments,
+mapping and sexagesimal colons, collection delimiters, reserved leading indicators,
+ISO-like dates, and numeric forms such as `0x`, `0b`, `0o`, and underscore notation are
+rejected while ordinary and balanced-quoted strings remain valid. They also cover trust
+whitespace/case/unknown-value bypasses, immutable exact skill-assessment dimensions, and
+metadata/readiness identity swaps. The TOCTOU tests deterministically substitute a
+different opened file after lexical validation and make containment fail after open; no
+byte may be read before current identity/containment passes. The tests do not depend on
+timing or host symlink privileges.
+
+This repository lane is not the installed-copy release gate. Installed-copy validation
+must be run separately when authorized, and no result here proves live Codex visibility.
+
+The outcome-gate lane uses fake in-process providers and disposable Git repositories; it
+does not execute a live repository-defined gate:
+
+```powershell
+python -m unittest tests.test_builder_d3_gates tests.test_builder_gate_runner tests.test_builder_integrator tests.integration.test_builder_worktrees -v
+```
+
+The D3 cases cover v1 compatibility, v2 provider absence, single-use approvals,
+full-definition requests, exact phase/target evidence, receipt authentication, monotonic
+checkpoint initialization/recovery/truncation, pre-execution reservations and crash-safe
+retry history, detached Python/JSON-schema parity across recorded Windows and POSIX
+identities, story-before-import ordering, root-after-post-check ordering, and final
+exact-coverage refolding. On Windows, the four explicitly POSIX-only runtime cases remain
+skipped; obtain Linux evidence before claiming those behaviors are cross-platform
+verified.
+
+## Worker-usage schema semantics
+
+Ordinary Draft 2020-12 validators enforce the closed structural constraints in
+`worker-usage.schema.json`; Draft 2020-12 does not compare numeric sibling fields. The
+schema therefore declares the exact cached-input ≤ input and reasoning-output ≤ output
+rules in the closed, versioned `x-compassBuilderSemanticConstraints` annotation. The
+repository-owned standard-library semantic validator validates that declaration and
+independently evaluates both comparisons. `validate_worker_usage_with_schema` combines
+the Python structural contract with that semantic evaluator without adding a JSON Schema
+dependency. Release validation requires both structural and repository semantic-schema
+validation; a generic Draft validator alone does not reject impossible sibling counts.
+
+Controller wiring and restart integrity are exercised with synthetic JSONL, fake
+transports, and temporary Git repositories only:
+
+```powershell
+python -m unittest tests.test_builder_usage tests.test_builder_controller_usage -v
+```
+
+The focused cases cover every terminal outcome and later controller exception, custom
+transports without telemetry, rejected forged/malformed/duplicate private observations,
+receipt cross-launch binding, parallel attempt isolation, and persistence failure. They
+also require canonical immutable launch and usage bytes on restart, reject orphaned or
+identity-drifted usage, reject canonical self-consistent launch forgeries against the
+durable plan/host/worktree/wave-start/Git/prompt/schema authority, and preserve distinct
+attempt-one and attempt-two evidence with canonical predecessor and dedicated
+`compass-builder.retry-evidence.v1` records. The retry cases reject generic failure
+records, every non-reasoning kind, non-controller sources, cross-run/story/predecessor
+bindings, and missing or ambiguous evidence; one exact controller-owned reasoning
+record permits attempt two. No test invokes a live Codex worker.
+
+Synthetic benchmark token telemetry is exercised separately from the immutable v1
+benchmark semantics:
+
+```powershell
+python -m unittest tests.test_builder_benchmark_usage tests.test_builder_benchmark_runner -v
+```
+
+These cases cover one-worker sequential and two-worker parallel attempts, stable
+`(runId, storyId, attempt)` identity, retry and failed/non-integrated attempt overhead,
+cached and reasoning subset accounting, zero-denominator nulls, matched deltas and ratios,
+warm-up exclusion, receipt/comparison digest binding, schema/canonical exactness, and
+receipt-derived time/quality when the optional v1 comparison is unavailable. They also
+prove that missing usage from a fake executor produces explicit incomplete telemetry,
+private controller events are rejected instead of parsed, output paths containing spaces
+work, and no live Codex worker is invoked.
+
 ## Windows CI
 
 `.github/workflows/validate.yml` uses a clean Windows runner with repository files,

@@ -20,6 +20,7 @@ SCHEMAS = PLUGIN_ROOT / "schemas"
 if str(PLUGIN_ROOT) not in sys.path:
     sys.path.insert(0, str(PLUGIN_ROOT))
 
+import compass_builder as public_builder  # noqa: E402
 from compass_builder.models import (  # noqa: E402
     ContractValidationError,
     canonical_json,
@@ -38,9 +39,13 @@ CONTRACTS = (
     "run-state",
     "host-capabilities",
     "worker-receipt",
+    "worker-usage",
+    "retry-evidence",
     "benchmark-receipt",
     "benchmark-workloads",
     "benchmark-aggregate",
+    "benchmark-attempt-usage",
+    "benchmark-token-report",
 )
 def fixture(name: str) -> dict:
     return json.loads((FIXTURES / f"{name}.valid.json").read_text(encoding="utf-8"))
@@ -800,6 +805,55 @@ class BuilderModelTests(unittest.TestCase):
         description = run_schema["properties"]["stories"]["description"].lower()
         self.assertIn("topologically", description)
         self.assertIn("earlier", description)
+
+    def test_retry_evidence_contract_is_versioned_closed_and_schema_bound(self):
+        self.assertTrue(
+            hasattr(public_builder, "validate_retry_evidence"),
+            "retry evidence needs one public closed validator",
+        )
+        schema_path = SCHEMAS / "retry-evidence.schema.json"
+        self.assertTrue(schema_path.is_file(), "retry evidence needs a public schema")
+        schema = json.loads(schema_path.read_text(encoding="utf-8"))
+        valid = {
+            "schemaVersion": "compass-builder.retry-evidence.v1",
+            "runId": "cb-retry-1111111111111111",
+            "storyId": "alpha",
+            "attempt": 2,
+            "source": "controller",
+            "kind": "reasoning",
+            "evidenceDigest": "sha256:" + "e" * 64,
+            "previousLaunchDigest": "sha256:" + "f" * 64,
+        }
+        validate = public_builder.validate_retry_evidence
+        self.assertEqual(valid, validate(valid))
+        self.assertFalse(schema["additionalProperties"])
+        self.assertEqual(set(valid), set(schema["required"]))
+        self.assertEqual(
+            {"controller", "worker"}, set(schema["properties"]["source"]["enum"])
+        )
+        self.assertEqual(
+            {
+                "reasoning", "startup", "model", "config", "tool",
+                "permission", "missing-input", "validation", "other",
+            },
+            set(schema["properties"]["kind"]["enum"]),
+        )
+        mutations = {
+            "extra": lambda item: item.update(extra=True),
+            "attempt": lambda item: item.update(attempt=1),
+            "source": lambda item: item.update(source="external"),
+            "kind": lambda item: item.update(kind="unknown"),
+            "evidenceDigest": lambda item: item.update(evidenceDigest="bad"),
+            "previousLaunchDigest": lambda item: item.update(
+                previousLaunchDigest="bad"
+            ),
+        }
+        for field, mutate in mutations.items():
+            with self.subTest(field=field):
+                candidate = copy.deepcopy(valid)
+                mutate(candidate)
+                with self.assertRaises(ContractValidationError):
+                    validate(candidate)
 
 
 if __name__ == "__main__":

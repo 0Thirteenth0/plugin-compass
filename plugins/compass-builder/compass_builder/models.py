@@ -12,7 +12,19 @@ from ._benchmark_models import (
     validate_benchmark_receipt_shape,
     validate_workloads_shape,
 )
+from ._benchmark_usage_models import (
+    ATTEMPT_USAGE_VERSION,
+    TOKEN_REPORT_VERSION,
+    validate_benchmark_attempt_usage_schema_semantics,
+    validate_benchmark_attempt_usage_shape,
+    validate_benchmark_token_report_shape,
+)
 from ._receipt_models import validate_worker_receipt_shape
+from ._retry_models import RETRY_EVIDENCE_VERSION, validate_retry_evidence_shape
+from ._gate_models import validate_outcome_gate_ledger_shape
+from ._usage_models import (
+    validate_worker_usage_schema_semantics, validate_worker_usage_shape,
+)
 from ._run_models import (
     validate_host_shape, validate_plan_safety, validate_run_spec_shape,
     validate_wave_plan_shape,
@@ -27,9 +39,14 @@ SCHEMA_VERSIONS = {
     "run-state": "compass-builder.run-state.v1",
     "host-capabilities": "compass-builder.host-capabilities.v1",
     "worker-receipt": "compass-builder.worker-receipt.v1",
+    "worker-usage": "compass-builder.worker-usage.v1",
+    "retry-evidence": RETRY_EVIDENCE_VERSION,
     "benchmark-receipt": "compass-builder.benchmark-receipt.v1",
     "benchmark-workloads": "compass-builder.benchmark-workloads.v1",
     "benchmark-aggregate": "compass-builder.benchmark-aggregate.v1",
+    "benchmark-attempt-usage": ATTEMPT_USAGE_VERSION,
+    "benchmark-token-report": TOKEN_REPORT_VERSION,
+    "outcome-gate-ledger": "compass-builder.outcome-gate-ledger.v1",
 }
 VALIDATORS: dict[str, Callable[[dict[str, Any]], None]] = {
     "run-spec": validate_run_spec_shape,
@@ -37,9 +54,14 @@ VALIDATORS: dict[str, Callable[[dict[str, Any]], None]] = {
     "run-state": validate_run_state_shape,
     "host-capabilities": validate_host_shape,
     "worker-receipt": validate_worker_receipt_shape,
+    "worker-usage": validate_worker_usage_shape,
+    "retry-evidence": validate_retry_evidence_shape,
     "benchmark-receipt": validate_benchmark_receipt_shape,
     "benchmark-workloads": validate_workloads_shape,
     "benchmark-aggregate": validate_aggregate_shape,
+    "benchmark-attempt-usage": validate_benchmark_attempt_usage_shape,
+    "benchmark-token-report": validate_benchmark_token_report_shape,
+    "outcome-gate-ledger": validate_outcome_gate_ledger_shape,
 }
 
 
@@ -86,9 +108,34 @@ validate_wave_plan = _validator("wave-plan")
 validate_run_state = _validator("run-state")
 validate_host_capabilities = _validator("host-capabilities")
 validate_worker_receipt = _validator("worker-receipt")
+validate_worker_usage = _validator("worker-usage")
+validate_retry_evidence = _validator("retry-evidence")
 validate_benchmark_receipt = _validator("benchmark-receipt")
 validate_benchmark_workloads = _validator("benchmark-workloads")
 validate_benchmark_aggregate = _validator("benchmark-aggregate")
+validate_benchmark_attempt_usage = _validator("benchmark-attempt-usage")
+validate_benchmark_token_report = _validator("benchmark-token-report")
+validate_outcome_gate_ledger = _validator("outcome-gate-ledger")
+
+
+def validate_worker_usage_with_schema(
+    schema: Mapping[str, Any], value: Mapping[str, Any]
+) -> dict[str, Any]:
+    """Require both the Python structural contract and declared schema semantics."""
+
+    normalized = validate_worker_usage(value)
+    validate_worker_usage_schema_semantics(schema, normalized)
+    return normalized
+
+
+def validate_benchmark_attempt_usage_with_schema(
+    schema: Mapping[str, Any], value: Mapping[str, Any]
+) -> dict[str, Any]:
+    """Require Python validation plus the schema-declared sibling equality."""
+
+    normalized = validate_benchmark_attempt_usage(value)
+    validate_benchmark_attempt_usage_schema_semantics(schema, normalized)
+    return normalized
 
 
 def run_binding_digest(

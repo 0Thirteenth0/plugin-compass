@@ -120,6 +120,40 @@ recorded in the final handoff.
 **Verification:** readiness safety tests, handoff gate tests, schema validation, native
 tool forward test when authorized by applicable repository policy, and package validators.
 
+### 8. Add standalone-skill discovery and source-neutral recommendations
+
+**Status:** complete in Workstreams F1-F3; F4 release/adversarial closure remains later.
+
+- Keep `codex plugin list --json` authoritative for plugin identity and discover
+  standalone skills only from explicit bounded user, project, and system roots.
+- Preserve standalone skills as source-neutral records with qualified identity,
+  provenance, trust, metadata, readiness, and degraded diagnostics.
+- Integrate mixed-source skill assessment and exact minimum-cardinality recommendations
+  into `inventory`, `assess`, `recommend`, and `prompt` without invoking any skill.
+- Fail safely on ambiguous bare names, logical-root collisions, malformed/oversized
+  metadata, reparse/path escapes, resource limits, and inconclusive plugin inventory.
+
+**Verification:** fixture-backed F3 CLI/model/decision/schema/rendering/determinism tests,
+independent specification and quality/security review, and repository audit.
+
+### 9. Add opt-in outcome-gate enforcement to Compass Builder
+
+**Status:** complete in Workstreams D1-D3; controlled comparison remains later.
+
+- Preserve `plan-bundle.v1` behavior and add a closed opt-in v2 bundle with a pristine
+  outcome-gate ledger.
+- Require a trusted in-process provider for just-in-time exact decisions, receipt seals,
+  pre-publication authentication, explicit genesis initialization, a monotonic evidence
+  checkpoint, and durable per-attempt command reservations.
+- Verify workers and required story gates before branch import; run root gates after
+  existing post-merge checks but before verified-state or completion advancement.
+- Fail closed on forged, truncated, replayed, wrong-phase, wrong-target, or incomplete
+  evidence, missing checkpoints, unresolved execution attempts, or v1 gate artifacts and
+  preserve phase-specific blockers.
+
+**Verification:** focused gate/evidence/controller/integrator tests in temporary Git
+repositories, independent specification and quality/security review, and repository audit.
+
 ## Retirement Checklist
 
 Before completion, remove or replace:
@@ -154,5 +188,7 @@ persistent state, or a second governance system.
 
 ## Execution Route
 
-Work inline. The user has not authorized multi-agent execution. Preserve the valid plugin
-scaffold while replacing only prototype behavior contradicted by this decision record.
+Implement only an explicitly approved slice. Disjoint Plugin Compass and Compass Builder
+lanes may use isolated reviewers when authorized, while the controller owns shared
+documents and repository-wide validation. Preserve the valid plugin scaffold and all
+unrelated user changes.

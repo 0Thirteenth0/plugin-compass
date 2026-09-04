@@ -1,0 +1,126 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://openai.local/compass-builder/worker-usage.schema.json",
+  "title": "Compass Builder worker usage v1",
+  "description": "One launch-bound observation from the direct Codex JSONL worker stdout stream.",
+  "x-compassBuilderSemanticConstraints": {
+    "schemaVersion": "compass-builder.semantic-constraints.v1",
+    "rules": [
+      {
+        "operator": "less-than-or-equal",
+        "left": "$.usage.cachedInputTokens",
+        "right": "$.usage.inputTokens"
+      },
+      {
+        "operator": "less-than-or-equal",
+        "left": "$.usage.reasoningOutputTokens",
+        "right": "$.usage.outputTokens"
+      }
+    ]
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "source", "runId", "storyId", "attempt", "exactModel",
+    "effort", "launchDigest", "workerReceiptDigest", "terminalStatus",
+    "observed", "unavailableReason", "usage"
+  ],
+  "properties": {
+    "schemaVersion": {"const": "compass-builder.worker-usage.v1"},
+    "source": {"const": "codex-exec-jsonl-stdout"},
+    "runId": {"$ref": "#/$defs/runId"},
+    "storyId": {"$ref": "#/$defs/id"},
+    "attempt": {"type": "integer", "minimum": 1, "maximum": 2},
+    "exactModel": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,159}(?![\\s\\S])",
+      "maxLength": 160,
+      "not": {"const": "inherit"}
+    },
+    "effort": {"enum": ["low", "medium", "high", "xhigh", "max", "ultra"]},
+    "launchDigest": {"$ref": "#/$defs/digest"},
+    "workerReceiptDigest": {"oneOf": [{"$ref": "#/$defs/digest"}, {"type": "null"}]},
+    "terminalStatus": {
+      "enum": ["succeeded", "failed", "blocked", "timed-out", "transport-error"]
+    },
+    "observed": {"type": "boolean"},
+    "unavailableReason": {
+      "oneOf": [
+        {"type": "null"},
+        {"$ref": "#/$defs/unavailableReason"}
+      ]
+    },
+    "usage": {"oneOf": [{"$ref": "#/$defs/usage"}, {"type": "null"}]}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"observed": {"const": true}}},
+      "then": {
+        "properties": {
+          "unavailableReason": {"type": "null"},
+          "usage": {"$ref": "#/$defs/usage"}
+        }
+      },
+      "else": {
+        "properties": {
+          "unavailableReason": {"$ref": "#/$defs/unavailableReason"},
+          "usage": {"type": "null"}
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}(?![\\s\\S])"},
+    "runId": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{1,31}-[0-9a-f]{16,64}(?![\\s\\S])",
+      "maxLength": 97
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,63}(?![\\s\\S])"
+    },
+    "count": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "unavailableReason": {
+      "enum": [
+        "no-terminal-usage", "malformed-terminal-usage",
+        "duplicate-terminal-usage", "conflicting-terminal-usage",
+        "invalid-utf8", "input-too-large", "malformed-terminal-record",
+        "invalid-transport-telemetry", "worker-receipt-binding-failed"
+      ]
+    },
+    "usage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "inputTokens", "cachedInputTokens", "cacheWriteInputTokens",
+        "cacheWriteInputTokensPresent", "outputTokens", "reasoningOutputTokens"
+      ],
+      "properties": {
+        "inputTokens": {"type": "integer", "minimum": 0, "maximum": 9007199254740991},
+        "cachedInputTokens": {"type": "integer", "minimum": 0, "maximum": 9007199254740991},
+        "cacheWriteInputTokens": {"type": "integer", "minimum": 0, "maximum": 9007199254740991},
+        "cacheWriteInputTokensPresent": {"type": "boolean"},
+        "outputTokens": {"type": "integer", "minimum": 0, "maximum": 9007199254740991},
+        "reasoningOutputTokens": {"type": "integer", "minimum": 0, "maximum": 9007199254740991}
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {"cacheWriteInputTokensPresent": {"const": false}}
+          },
+          "then": {
+            "properties": {"cacheWriteInputTokens": {"const": 0}}
+          }
+        }
+      ],
+      "$comment": "Draft 2020-12 validates this object's structural constraints. The repository validator independently enforces the versioned sibling comparisons declared in x-compassBuilderSemanticConstraints."
+    }
+  }
+}

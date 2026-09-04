@@ -44,6 +44,32 @@ python scripts/plugin_compass.py handoff --task-file <agent-task.json> --format 
 Assessment commands default to `--optimization-goal speed`. Use `--optimization-goal cost`
 only for an explicit cost request; speed/model/effort wording does not enable the cost skill.
 
+Standalone skills are opt-in and read-only. Add repeatable
+`--user-skill-root <identity> <path>`, `--project-skill-root <identity> <path>`, or
+`--system-skill-root <identity> <path>` pairs to `inventory`, `assess`, `recommend`, or
+`prompt`. Assessment commands also accept repeatable `--select-skill <value>` arguments;
+use an exact `skill://` qualified identity when a bare name is ambiguous. Plugin Compass
+never infers these roots or executes a discovered skill. Discovery opens `SKILL.md` as
+bounded read-only bytes, requires valid UTF-8, rejects duplicate frontmatter keys, and
+reports missing, unreadable, incomplete, malformed, oversized, escaped, or limit-exhausted
+input as degraded diagnostics. Incomplete records remain visible but are never eligible
+for automatic or exact recommendation. Plugin Compass never installs, copies, edits,
+synchronizes, or invokes a skill.
+
+The dependency-free frontmatter reader supports only a flat mapping of simple keys to
+string scalars, with blank lines and whole-line comments. An unquoted nonempty string must
+start with a Unicode letter, digit, or underscore; contain none of `: # [ ] { }`; and not
+match a null, boolean, numeric, or ISO-like date/time token. Empty values remain empty
+strings. Otherwise a value must use matching single or double outer quotes, with no
+matching quote inside. Complex/quoted keys, duplicate canonical keys, indentation,
+block/collection/tag/alias values, inline comments, and stray syntax are malformed.
+Balanced quotes preserve numeric- and date-looking text as strings. Source-neutral trust
+is one of `not_assessed`, `trusted`, `unknown`, `untrusted`, `blocked`, or `rejected`; only
+`not_assessed` and `trusted` are recommendation-eligible. Metadata and readiness files
+are opened read-only with no-follow/identity checks before use and immediately before the
+first byte read, then revalidated after use. They are rejected if the named object or
+containment changes.
+
 ## Empty inventory recovery
 
 An empty live CLI inventory returns exit `3` and `CODEX_INVENTORY_EMPTY`. It may be a
@@ -54,10 +80,21 @@ then pass `--inventory-file <path>` to the same command inside the sandbox. The 
 never elevates itself, retries automatically, or substitutes cache folders for inventory.
 If approval is unavailable or the approved listing remains empty, discovery stays inconclusive.
 
-Plan JSON now uses `plugin-compass.plan.v3`; prompt JSON remains
-`plugin-compass.prompt.v2`. Inventory JSON is v2. Capability records include static local
+Plan JSON uses `plugin-compass.plan.v5`; prompt JSON uses
+`plugin-compass.prompt.v3`. Inventory JSON is v3. Source-neutral skill results preserve
+qualified provenance, trust, metadata, and readiness, while nested plugin capability
+records remain for compatibility. Capability records include static local
 execution-readiness evidence. A missing explicit plugin-root file reference excludes that
 capability, but is neither a security verdict nor proof that no alternate launcher exists.
+Adding standalone roots cannot add or alter plugin records: plugin identity and installed
+or enabled state continue to come only from `codex plugin list --json` or its explicit
+saved snapshot.
+
+Run the standalone release lane without live skill roots:
+
+```text
+python -m unittest tests.test_f4_release_closure tests.test_source_neutral_skill_models tests.test_standalone_skill_discovery tests.test_standalone_skill_ordering tests.test_skill_decision tests.test_f3_cli tests.test_cli tests.test_adapters -v
+```
 
 Agent-task input and handoff output use `plugin-compass.agent-task.v1` and
 `plugin-compass.handoff.v1`. A proposal preserves the selected model, selects the lowest

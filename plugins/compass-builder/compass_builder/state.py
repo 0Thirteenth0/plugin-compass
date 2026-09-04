@@ -16,13 +16,16 @@ import tempfile
 from pathlib import Path
 from typing import Mapping
 
-from .git_environment import GitEnvironment, validate_git_environment
+from .git_environment import (
+    GitEnvironment, load_git_environment, validate_git_environment,
+)
 from .durable_artifacts import (
     ArtifactJournal, DIRECTORIES as RUN_DIRECTORY_ARTIFACTS,
-    accepts as accepts_artifacts,
+    accepts as accepts_artifacts, decode_canonical_mapping,
 )
 from .git_objects import GitObjectError, reject_active_grafts
 from .errors import StateError
+from .launcher import validate_launch_authority, validate_launch_record
 from .repository import RepositoryIdentity, git_text as _git, resolve_repository
 from .secure_files import (
     is_reparse as _is_reparse, read_no_follow, reject_reparse_components,
@@ -32,12 +35,20 @@ _reject_existing_reparse_components = reject_reparse_components
 from ._validation import branch as validate_branch
 from ._validation import run_id as validate_run_id
 from .models import (
+    canonical_digest,
     canonical_json,
     run_binding_digest,
     validate_run_bindings,
     validate_run_state,
     validate_run_state_transition,
     validate_run_structure_bindings,
+    validate_retry_evidence,
+    validate_worker_usage_with_schema,
+)
+
+
+_WORKER_USAGE_SCHEMA = (
+    Path(__file__).resolve().parents[1] / "schemas" / "worker-usage.schema.json"
 )
 
 
@@ -149,6 +160,24 @@ class StateStore:
                 "worktree": str(self.registered_worktree(story_id)),
             }
             for story_id in self._branches
+        )
+
+    def launch_record_path(self, story_id: str, attempt: int) -> Path:
+        """Return the collision-free durable filename for one planned launch."""
+
+        if story_id not in self._branches:
+            raise StateError(f"story {story_id!r} is not registered in the immutable plan")
+        if type(attempt) is not int or attempt not in (1, 2):
+            raise StateError("launch attempt must be 1 or 2")
+        name = (
+            f"{story_id}.json"
+            if attempt == 1
+            else f"__attempt-2__{story_id}.json"
+        )
+        return _require_contained(
+            self.run_root / "launch-records" / name,
+            self.control_root,
+            label="controller-owned launch record",
         )
 
     def observed_integration_head(self) -> str:
@@ -317,6 +346,21 @@ class StateStore:
             raise StateError("durable run artifact set is partial or contains unknown files")
         if require_bundle and "plan-bundle.json" not in names:
             raise StateError("durable run artifact set is missing its immutable plan bundle")
+        gate_artifacts = {"gate-evidence", "gate-execution-intents"} & names
+        if gate_artifacts:
+            if "plan-bundle.json" not in names:
+                raise StateError("durable gate artifacts require an immutable v2 plan bundle")
+            try:
+                gate_bundle = json.loads(_read_file_no_follow(
+                    self.bundle_path, self.run_root, label="durable gated execution bundle"
+                ).decode("utf-8-sig"))
+                validated_gate_bundle = validate_execution_bundle(
+                    gate_bundle, self.repository.root, self.git_environment
+                )
+            except (OSError, UnicodeError, ValueError) as exc:
+                raise StateError(f"durable gate artifact bundle is invalid: {exc}") from exc
+            if validated_gate_bundle["schemaVersion"] != "compass-builder.plan-bundle.v2":
+                raise StateError("durable gate artifacts are permitted only for a v2 plan bundle")
         for directory_name in RUN_DIRECTORY_ARTIFACTS:
             candidate = self.run_root / directory_name
             if directory_name in names and (
@@ -545,6 +589,328 @@ class StateStore:
         except (OSError, ValueError) as exc:
             raise StateError(str(exc)) from exc
 
+    def _durable_launch_authority(
+        self, story_ids: set[str],
+    ) -> tuple[dict[str, object], GitEnvironment, dict[str, str]]:
+        """Load immutable inputs needed to authorize durable launch evidence."""
+
+        self._validate_publication(require_bundle=True)
+        base_environment = (
+            self.git_environment.environment if self.git_environment is not None else None
+        )
+        try:
+            environment = load_git_environment(
+                self.run_root / "git-environment",
+                base_environment=base_environment,
+            )
+            payload = _read_file_no_follow(
+                self.bundle_path, self.run_root, label="durable execution bundle"
+            )
+            decoded = decode_canonical_mapping(
+                payload, label="durable execution bundle"
+            )
+            bundle = validate_execution_bundle(
+                decoded, self.repository.root, environment
+            )
+        except (OSError, ValueError) as exc:
+            raise StateError(
+                f"durable launch authority is unavailable or invalid: {exc}"
+            ) from exc
+        if bundle != decoded:
+            raise StateError("durable execution bundle changes under canonical validation")
+        if (
+            canonical_json(bundle["runSpec"]) != canonical_json(self.spec)
+            or canonical_json(bundle["wavePlan"]) != canonical_json(self.plan)
+        ):
+            raise StateError(
+                "durable execution bundle does not match this store's immutable run inputs"
+            )
+        state = self.load_durable_state()
+        starts: dict[str, str] = {}
+        for story_id in story_ids:
+            matching = [
+                str(wave["startExpectedSha"])
+                for wave in state["waves"]
+                if any(
+                    entry["storyId"] == story_id for entry in wave["branches"]
+                )
+            ]
+            if len(matching) != 1:
+                raise StateError(
+                    "durable state does not contain one authoritative story wave start"
+                )
+            starts[story_id] = matching[0]
+        return bundle, environment, starts
+
+    def _bind_retry_evidence(
+        self, record: Mapping[str, object],
+        launches: Mapping[tuple[str, int], Mapping[str, object]],
+    ) -> dict[str, object]:
+        try:
+            normalized = validate_retry_evidence(record)
+        except ValueError as exc:
+            raise StateError(f"durable retry evidence is invalid: {exc}") from exc
+        if normalized["runId"] != self.run_id:
+            raise StateError("durable retry evidence belongs to another run")
+        story_id = str(normalized["storyId"])
+        if story_id not in self._branches:
+            raise StateError("durable retry evidence does not identify a planned story")
+        previous = launches.get((story_id, 1))
+        if previous is None:
+            raise StateError("durable retry evidence has no authoritative first launch")
+        if normalized["previousLaunchDigest"] != canonical_digest(previous):
+            raise StateError("durable retry evidence does not bind the first launch digest")
+        return normalized
+
+    def _retry_evidence_records_for_launches(
+        self, launches: Mapping[tuple[str, int], Mapping[str, object]],
+    ) -> tuple[dict[str, object], ...]:
+        try:
+            raw = ArtifactJournal(
+                self.run_root, self.control_root
+            ).read("retry-evidence")
+        except (OSError, ValueError) as exc:
+            raise StateError(f"durable retry evidence is unavailable: {exc}") from exc
+        records = tuple(self._bind_retry_evidence(item, launches) for item in raw)
+        identities = [
+            (item["runId"], item["storyId"], item["attempt"], item["previousLaunchDigest"])
+            for item in records
+        ]
+        if len(set(identities)) != len(identities):
+            raise StateError("durable retry evidence contains an ambiguous attempt identity")
+        return tuple(sorted(
+            records,
+            key=lambda item: (
+                str(item["storyId"]), int(item["attempt"]),
+                str(item["evidenceDigest"]),
+            ),
+        ))
+
+    def _validated_launch_records(
+        self, *, first_only: bool = False,
+    ) -> dict[tuple[str, int], dict[str, object]]:
+        directory = self.run_root / "launch-records"
+        _require_contained(
+            directory, self.control_root, label="durable launch record directory"
+        )
+        if not directory.is_dir() or _is_reparse(directory):
+            raise StateError("durable launch record directory is missing or unsafe")
+        expected = {
+            self.launch_record_path(story_id, attempt).name: (story_id, attempt)
+            for story_id in self._branches
+            for attempt in (1, 2)
+        }
+        try:
+            entries = tuple(directory.iterdir())
+        except OSError as exc:
+            raise StateError(f"durable launch records are unavailable: {exc}") from exc
+        if len(entries) > len(expected):
+            raise StateError("durable launch records are ambiguous or exceed their bound")
+        parsed: dict[tuple[str, int], dict[str, object]] = {}
+        for path in entries:
+            identity = expected.get(path.name)
+            if identity is None:
+                raise StateError("durable launch records contain an unknown or ambiguous entry")
+            if _is_reparse(path) or not path.is_file():
+                raise StateError("durable launch record is unsafe")
+            try:
+                payload = read_no_follow(
+                    path, self.control_root, label="durable launch record",
+                    max_bytes=1_048_576,
+                )
+                decoded = decode_canonical_mapping(
+                    payload, label="durable launch record"
+                )
+                normalized = validate_launch_record(decoded)
+            except (OSError, ValueError) as exc:
+                raise StateError(f"durable launch record is invalid: {exc}") from exc
+            if normalized != decoded:
+                raise StateError("durable launch record changes under canonical validation")
+            story_id, attempt = identity
+            key = (story_id, attempt)
+            if key in parsed:
+                raise StateError("durable launch records are ambiguous")
+            parsed[key] = normalized
+        bundle, environment, starts = self._durable_launch_authority({
+            story_id for story_id, _attempt in parsed
+        })
+        launches: dict[tuple[str, int], dict[str, object]] = {}
+        for key in sorted(parsed):
+            story_id, attempt = key
+            if attempt != 1:
+                continue
+            launch = parsed[key]
+            try:
+                launches[key] = validate_launch_authority(
+                    launch, bundle["runSpec"], bundle["wavePlan"],
+                    bundle["hostCapabilities"],
+                    planning_timestamp=str(bundle["planningTimestamp"]),
+                    story_id=story_id, attempt=attempt,
+                    registered_worktree=self.registered_worktree(story_id),
+                    worker_start_sha=starts[story_id],
+                    git_environment=environment,
+                )
+            except ValueError as exc:
+                raise StateError(
+                    f"durable launch record lacks controller authority: {exc}"
+                ) from exc
+        if first_only:
+            return launches
+        retry_records = self._retry_evidence_records_for_launches(launches)
+        for key in sorted(parsed):
+            story_id, attempt = key
+            if attempt != 2:
+                continue
+            launch = parsed[key]
+            previous = launches.get((story_id, 1))
+            if previous is None:
+                raise StateError("second launch has no authoritative first launch")
+            matching = [
+                item for item in retry_records
+                if item["storyId"] == story_id
+                and item["attempt"] == attempt
+                and item["previousLaunchDigest"] == canonical_digest(previous)
+                and item["evidenceDigest"] == launch["retryEvidenceDigest"]
+            ]
+            if len(matching) != 1:
+                raise StateError(
+                    "second launch does not have one exact durable retry evidence record"
+                )
+            try:
+                launches[key] = validate_launch_authority(
+                    launch, bundle["runSpec"], bundle["wavePlan"],
+                    bundle["hostCapabilities"],
+                    planning_timestamp=str(bundle["planningTimestamp"]),
+                    story_id=story_id, attempt=attempt,
+                    registered_worktree=self.registered_worktree(story_id),
+                    worker_start_sha=starts[story_id],
+                    git_environment=environment,
+                    previous_launch=previous,
+                    retry_evidence=matching[0],
+                )
+            except ValueError as exc:
+                raise StateError(
+                    f"durable launch record lacks controller authority: {exc}"
+                ) from exc
+        return launches
+
+    def record_retry_evidence(
+        self, record: Mapping[str, object]
+    ) -> dict[str, object]:
+        """Persist one launch-bound authorization candidate for attempt two."""
+
+        try:
+            normalized = validate_retry_evidence(record)
+        except ValueError as exc:
+            raise StateError(f"durable retry evidence is invalid: {exc}") from exc
+        if normalized["runId"] != self.run_id:
+            raise StateError("durable retry evidence belongs to another run")
+        if normalized["storyId"] not in self._branches:
+            raise StateError("durable retry evidence does not identify a planned story")
+        first_launches = self._validated_launch_records(first_only=True)
+        normalized = self._bind_retry_evidence(normalized, first_launches)
+        existing = self.retry_evidence_records()
+        identity = (
+            normalized["runId"], normalized["storyId"], normalized["attempt"],
+            normalized["previousLaunchDigest"],
+        )
+        for item in existing:
+            item_identity = (
+                item["runId"], item["storyId"], item["attempt"],
+                item["previousLaunchDigest"],
+            )
+            if item_identity == identity and item != normalized:
+                raise StateError(
+                    "retry evidence attempt already has different durable authority"
+                )
+        self._record_receipt("retry-evidence", normalized)
+        return normalized
+
+    def retry_evidence_records(self) -> tuple[dict[str, object], ...]:
+        """Read canonical, uniquely launch-bound retry evidence."""
+
+        self._validate_publication()
+        try:
+            raw = ArtifactJournal(
+                self.run_root, self.control_root
+            ).read("retry-evidence")
+        except (OSError, ValueError) as exc:
+            raise StateError(f"durable retry evidence is unavailable: {exc}") from exc
+        if not raw:
+            return ()
+        first_launches = self._validated_launch_records(first_only=True)
+        return self._retry_evidence_records_for_launches(first_launches)
+
+    def _validate_worker_usage_record(
+        self, record: Mapping[str, object],
+        launches: Mapping[tuple[str, int], Mapping[str, object]] | None = None,
+    ) -> dict[str, object]:
+        try:
+            schema = json.loads(_WORKER_USAGE_SCHEMA.read_text(encoding="utf-8"))
+            normalized = validate_worker_usage_with_schema(schema, record)
+        except (OSError, UnicodeError, ValueError) as exc:
+            raise StateError(f"worker usage evidence is invalid: {exc}") from exc
+        if normalized["runId"] != self.run_id:
+            raise StateError("worker usage evidence belongs to another run")
+        if normalized["storyId"] not in self._branches:
+            raise StateError("worker usage evidence does not identify a planned story")
+        if normalized["exactModel"] != self.spec["exactModel"]:
+            raise StateError("worker usage evidence does not bind the run's exact model")
+        durable_launches = (
+            self._validated_launch_records() if launches is None else launches
+        )
+        identity = (str(normalized["storyId"]), int(normalized["attempt"]))
+        launch = durable_launches.get(identity)
+        if launch is None:
+            raise StateError("worker usage evidence has no matching durable launch record")
+        for field in ("runId", "storyId", "attempt", "exactModel", "effort"):
+            if normalized[field] != launch[field]:
+                raise StateError(
+                    f"worker usage evidence does not match durable launch {field}"
+                )
+        if normalized["launchDigest"] != canonical_digest(launch):
+            raise StateError(
+                "worker usage evidence launchDigest does not match its durable launch"
+            )
+        return normalized
+
+    def record_worker_usage(
+        self, record: Mapping[str, object]
+    ) -> dict[str, object]:
+        """Persist one validated immutable usage record for a launch attempt."""
+
+        normalized = self._validate_worker_usage_record(record)
+        existing = self.worker_usage_records()
+        identity = (normalized["storyId"], normalized["attempt"])
+        for item in existing:
+            if (item["storyId"], item["attempt"]) == identity and item != normalized:
+                raise StateError("worker usage attempt already has different durable evidence")
+        self._record_receipt("worker-usage", normalized)
+        return normalized
+
+    def worker_usage_records(self) -> tuple[dict[str, object], ...]:
+        """Read and fully validate deterministic usage evidence for this run."""
+
+        self._validate_publication()
+        try:
+            raw = ArtifactJournal(
+                self.run_root, self.control_root
+            ).read("worker-usage")
+        except (OSError, ValueError) as exc:
+            raise StateError(str(exc)) from exc
+        if not raw:
+            return ()
+        launches = self._validated_launch_records()
+        records = tuple(
+            self._validate_worker_usage_record(item, launches) for item in raw
+        )
+        identities = [(item["storyId"], item["attempt"]) for item in records]
+        if len(set(identities)) != len(identities):
+            raise StateError("durable worker usage contains duplicate launch attempts")
+        return tuple(sorted(
+            records, key=lambda item: (str(item["storyId"]), int(item["attempt"]))
+        ))
+
     def record_merge_intent(
         self, previous: Mapping[str, object], *, story_id: str,
         expected_sha: str, verified_head_sha: str,
@@ -569,6 +935,8 @@ class StateStore:
         reason: str,
         evidence_digest: str,
         story_id: str | None = None,
+        phase: str = "controller",
+        resume_state: str | None = None,
     ) -> dict[str, object] | None:
         """Best-effort active blocker plus immutable failure evidence."""
 
@@ -578,11 +946,22 @@ class StateStore:
             evidence_digest=evidence_digest, story_id=story_id,
         )
         blocked = copy.deepcopy(before)
+        if phase == "verification":
+            if before["state"] != "wave-workers-complete" or story_id is None:
+                raise StateError("verification blocker requires one completed current-wave story")
+            entries = blocked["waves"][blocked["currentWaveIndex"]]["branches"]
+            matches = [entry for entry in entries if entry["storyId"] == story_id]
+            if len(matches) != 1:
+                raise StateError("verification blocker does not identify one current-wave story")
+            matches[0].update(verificationState="failed", integrationState="blocked")
+        elif phase != "controller":
+            raise StateError("record_blocker received an unsupported phase")
         blocker = {
             "blockerId": f"controller-{evidence_digest[7:23]}",
-            "blockedFromState": before["state"], "phase": "controller",
+            "blockedFromState": before["state"], "phase": phase,
             "storyId": story_id, "reason": reason[:2000],
-            "evidenceDigest": evidence_digest, "resumeState": before["state"],
+            "evidenceDigest": evidence_digest,
+            "resumeState": resume_state or before["state"],
         }
         blocked.update(
             previousState=before["state"], state="blocked", activeBlocker=blocker,
@@ -735,13 +1114,14 @@ class StateStore:
 
 
 from .execution_bundle import (
-    build_execution_bundle, load_run_bundle, load_run_inputs,
+    build_execution_bundle, build_gated_execution_bundle, load_run_bundle, load_run_inputs,
     validate_execution_bundle,
 )
 
 
 __all__ = [
     "RepositoryIdentity", "StateError", "StateStore", "build_execution_bundle",
+    "build_gated_execution_bundle",
     "load_run_bundle", "load_run_inputs", "resolve_repository",
     "validate_execution_bundle",
 ]
